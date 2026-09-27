@@ -7,6 +7,14 @@ agentic game-testing research (the PhD listing explicitly says evaluation
 will be against scripted and random baselines), and a learned policy is
 out of scope for a demo.
 
+Since September it also checks what it is looking at before it acts
+(observe -> decide -> act -> recover). Twice a second a local CLIP model
+answers "is this the game?". If not, the Explorer stops pressing keys,
+logs what it saw, brings the game window back to the front and checks
+again; after three failed tries it ends the run instead of recording the
+wrong window. In May, without this, it kept sending key presses to
+whatever window had focus after the game dropped out.
+
 Future work the PhD would explore:
   • Curiosity-driven RL exploration
   • VLM-guided action selection (look at the frame, propose useful moves)
@@ -20,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
-from utils import FrameGrabber, SessionLogger, press_key
+from utils import FrameGrabber, SessionLogger, focus_game_window, press_key, save_frame
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -53,13 +61,39 @@ class MixedPolicy:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# GUARD: am I looking at the game? If not, get it back.
+# ─────────────────────────────────────────────────────────────────────────
+def recover(grabber: FrameGrabber, logger: SessionLogger, is_game) -> bool:
+    """Try to bring the game back to the front. True once CLIP sees it again."""
+    for attempt in range(1, config.GUARD_MAX_RECOVERIES + 1):
+        found = focus_game_window()
+        time.sleep(0.5)                       # let the window come forward
+        ok, p = is_game(grabber.grab())
+        logger.log_event("recovery_attempt", {
+            "attempt": attempt, "window_found": found,
+            "p_game": round(p, 4), "recovered": ok,
+        })
+        print(f"[explorer] recovery {attempt}: window_found={found} p_game={p:.2f}")
+        if ok:
+            return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # MAIN LOOP
 # ─────────────────────────────────────────────────────────────────────────
-def run_exploration(duration_sec: int, session_dir: Path) -> Path:
+def run_exploration(duration_sec: int, session_dir: Path, guard: bool = True) -> Path:
     """Drive the game for `duration_sec` seconds, logging every action+frame."""
     grabber = FrameGrabber()
     logger  = SessionLogger(session_dir)
     policy  = MixedPolicy(config.EXPLORER_RANDOM_SEED, config.EXPLORER_HEURISTIC_MIX)
+
+    guard = guard and config.GUARD_ENABLED
+    is_game = None
+    if guard:
+        from perception import is_game, warm_up   # CLIP, loaded once
+        print("[explorer] Loading CLIP for the guard...")
+        warm_up()
 
     frame_interval = 1.0 / config.EXPLORER_FPS
     print(f"[explorer] Run starts. Capturing for {duration_sec}s at {config.EXPLORER_FPS} fps.")
@@ -70,14 +104,34 @@ def run_exploration(duration_sec: int, session_dir: Path) -> Path:
         "fps": config.EXPLORER_FPS,
         "seed": config.EXPLORER_RANDOM_SEED,
         "bbox": config.CAPTURE_BBOX,
+        "guard": guard,
     })
 
+    off_dir = session_dir / "off_game"        # what it saw when it was lost
     start = time.time()
+    tick = 0
+    end_reason = "time_up"
     try:
         while time.time() - start < duration_sec:
             tick_start = time.time()
-
             frame = grabber.grab()
+
+            # Observe before acting: is this still the game?
+            if guard and tick % config.GUARD_EVERY_N_TICKS == 0:
+                ok, p = is_game(frame)
+                if not ok:
+                    shot = off_dir / f"tick_{tick:06d}.jpg"
+                    save_frame(frame, shot)
+                    logger.log_event("off_game", {"tick": tick, "p_game": round(p, 4),
+                                                  "path": str(shot)})
+                    print(f"[explorer] tick {tick}: not the game (p_game={p:.2f}); "
+                          "no keys pressed, recovering")
+                    if not recover(grabber, logger, is_game):
+                        end_reason = "lost_game"
+                        break
+                    tick += 1
+                    continue                   # never act on a frame we don't trust
+
             action = policy.next_action(frame=frame)
             logger.log_frame(frame, action=action)
 
@@ -85,6 +139,7 @@ def run_exploration(duration_sec: int, session_dir: Path) -> Path:
             # next capture sees the *result* of the press, not the press
             # itself in progress.
             press_key(action, duration=frame_interval * 0.6)
+            tick += 1
 
             # Throttle to the configured frame rate.
             elapsed = time.time() - tick_start
@@ -92,13 +147,14 @@ def run_exploration(duration_sec: int, session_dir: Path) -> Path:
             time.sleep(sleep_for)
 
     except KeyboardInterrupt:
+        end_reason = "interrupted"
         print("[explorer] Interrupted by user.")
     finally:
-        logger.log_event("session_end", {"frames": logger._frame_counter})
+        logger.log_event("session_end", {"frames": logger._frame_counter, "reason": end_reason})
         logger.close()
         grabber.close()
 
-    print(f"[explorer] Done. {logger._frame_counter} frames captured.")
+    print(f"[explorer] Done ({end_reason}). {logger._frame_counter} frames captured.")
     return session_dir
 
 
@@ -111,6 +167,8 @@ def main():
                    help="Exploration duration in seconds.")
     p.add_argument("--name", type=str, default=None,
                    help="Optional session name; auto-generated if omitted.")
+    p.add_argument("--no-guard", action="store_true",
+                   help="Turn off the CLIP guard (reproduces the May behaviour).")
     args = p.parse_args()
 
     name = args.name or datetime.now().strftime("session_%Y%m%d_%H%M%S")
@@ -119,7 +177,7 @@ def main():
     print("[explorer] Make sure the game window is focused. Starting in 3s...")
     time.sleep(3)
 
-    run_exploration(args.duration, session_dir)
+    run_exploration(args.duration, session_dir, guard=not args.no_guard)
 
 
 if __name__ == "__main__":

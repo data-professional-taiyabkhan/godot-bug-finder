@@ -5,3 +5,6 @@ Pillow>=10.0
 pyautogui>=0.9.54
 anthropic>=0.39
 openai>=1.40  # optional; only needed if LLM_BACKEND="openai"
+torch>=2.3          # CPU build is enough; used by the CLIP guard
+transformers>=4.44  # CLIP ViT-B/32 (weights download on first run, ~600 MB)
+PyGetWindow>=0.0.9  # bring the game window back to the front (Windows)

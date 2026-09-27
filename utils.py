@@ -110,6 +110,36 @@ def press_key(key: str, duration: float = 0.10) -> None:
     pyautogui.keyUp(key)
 
 
+def focus_game_window(title: Optional[str] = None) -> bool:
+    """Bring the game window to the front. Returns True if a window was found.
+
+    Used by the Explorer to recover when it notices it is not looking at the
+    game. pygetwindow is Windows-only; elsewhere this returns False.
+    """
+    title = title or config.GAME_WINDOW_TITLE
+    try:
+        import pygetwindow as gw  # type: ignore
+    except Exception:
+        return False
+    wins = gw.getWindowsWithTitle(title)
+    if not wins:
+        return False
+    w = wins[0]
+    try:
+        if w.isMinimized:
+            w.restore()
+        w.activate()
+    except Exception:
+        # pygetwindow sometimes raises "operation completed successfully";
+        # minimise + restore is the usual workaround.
+        try:
+            w.minimize()
+            w.restore()
+        except Exception:
+            return False
+    return True
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # SESSION LOGGING
 # ─────────────────────────────────────────────────────────────────────────

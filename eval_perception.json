@@ -1,0 +1,30 @@
+{
+  "frames": 416,
+  "game_frames": 328,
+  "not_game_frames": 88,
+  "accuracy": 1.0,
+  "confusion": {
+    "game_called_game": 328,
+    "game_called_not_game": 0,
+    "not_game_called_game": 0,
+    "not_game_called_not_game": 88
+  },
+  "lowest_p_game_on_a_game_frame": 0.9705,
+  "highest_p_game_on_a_not_game_frame": 0.0217,
+  "ms_per_frame_cpu": 82.3,
+  "cut_off": 0.5,
+  "prompts": {
+    "game": [
+      "a screenshot of a video game",
+      "a screenshot of a 2D platformer game"
+    ],
+    "not_game": [
+      "a screenshot of a code editor",
+      "a screenshot of a computer desktop",
+      "a screenshot of a web browser",
+      "a black screen",
+      "an error message dialog"
+    ]
+  },
+  "mistakes": []
+}

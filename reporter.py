@@ -31,7 +31,9 @@ from utils import frame_to_base64
 # ─────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a QA engineer reviewing automated bug detections from a game-testing agent.
 For each candidate anomaly you receive:
-  • The anomaly type (sudden_jump or frozen)
+  • The anomaly type (off_game, sudden_jump or unresponsive)
+  • A triage hint from a CLIP model: "harness" means the captured frames did not
+    look like the game at all (lost window, desktop, another app); "game" means they did
   • The action sequence that led up to it
   • A small set of in-order frames showing the moment of interest
 
@@ -39,7 +41,7 @@ Return a single JSON object with this exact schema:
 
 {
   "title":         "short imperative title, max 80 chars",
-  "anomaly_type":  "<sudden_jump | frozen | likely_false_positive>",
+  "anomaly_type":  "<off_game | sudden_jump | unresponsive | likely_false_positive>",
   "is_real_bug":   true | false,
   "severity":      1 to 5  (1 = cosmetic, 3 = noticeable, 5 = game-breaking),
   "qoe_dimensions_affected": ["immersion" | "fairness" | "comfort" | "usability" | "frustration" | ...],
@@ -50,6 +52,7 @@ Return a single JSON object with this exact schema:
 }
 
 Be honest: if the frames look like normal gameplay or scene transitions, set is_real_bug=false.
+If the frames do not show the game at all, it is a test-harness problem, not a game bug: set is_real_bug=false.
 Do not include any text outside the JSON object."""
 
 

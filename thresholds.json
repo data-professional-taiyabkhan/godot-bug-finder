@@ -1,0 +1,15 @@
+{
+  "calibrated_on": "session_20260520_094721",
+  "frame_pairs": 201,
+  "clean_pixel_diff": {
+    "min": 1.519,
+    "p5": 3.679,
+    "median": 22.924,
+    "p95": 26.374,
+    "max": 28.689
+  },
+  "diff_high": 43.03,
+  "diff_low": 1.52,
+  "rule": "jump: diff > 1.5 x clean max; unresponsive: 3 s median diff < 1.0 x clean min while pressing movement keys",
+  "created": "2026-09-27"
+}

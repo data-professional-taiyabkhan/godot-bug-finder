@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://cygtqanamu68e" path="res://level/level.tscn" id="3"]
 [ext_resource type="PackedScene" uid="uid://dsqy8lxrpip13" path="res://player/player.tscn" id="4"]
 [ext_resource type="PackedScene" uid="uid://nhpj5cy87771" path="res://gui/pause_menu_singleplayer.tscn" id="4_x6l06"]
+[ext_resource type="Script" path="res://planted_bugs.gd" id="5_bugs"]
 
 [node name="Game" type="Node" unique_id=924924404]
 process_mode = 3
@@ -20,5 +21,8 @@ scale = Vector2(1, 1)
 layer = 100
 
 [node name="PauseMenu" parent="InterfaceLayer" unique_id=1388998718 instance=ExtResource("4_x6l06")]
+
+[node name="PlantedBugs" type="Node" parent="." unique_id=551177001]
+script = ExtResource("5_bugs")
 
 [connection signal="coin_collected" from="Level/Player" to="InterfaceLayer/PauseMenu" method="_on_coin_collected"]
