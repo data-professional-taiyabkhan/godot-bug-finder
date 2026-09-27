@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Large local tools: Godot binaries and the demo-projects clone
+tools/
+
+# Local model cache (CLIP weights)
+.hf_cache/
+
+# Raw run outputs. A small curated sample lives in examples/
+sessions/
+evidence/
+reports/
+
+# Loose debug frames in the root folder
+/*.jpg
+
+# Godot editor import cache (regenerated automatically)
+demo_project/.godot/
+
+# Secrets
+.env
