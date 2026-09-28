@@ -42,7 +42,7 @@ planted bug's ground truth. `calibrate.py` sets thresholds from a clean run.
 `guard_test.py` opens a window over the game mid-run to test the guard.
 
 **Pace.** `EXPLORER_FPS` is 10, but pyautogui sleeps 0.1 s after every key
-event, so every logged run has recorded 3.24-3.36 frames a second. A 30-frame
+event, so every full-length run has recorded 3.24-3.36 frames a second. A 30-frame
 window is therefore about 9 s, and the guard's CLIP check comes about every
 1.5 s. Earlier versions of this README said 10 fps and "3 s"; that was wrong.
 The thresholds were calibrated at the real pace, so I have left it alone.
