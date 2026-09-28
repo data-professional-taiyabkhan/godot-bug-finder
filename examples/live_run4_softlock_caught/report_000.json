@@ -1,0 +1,29 @@
+{
+  "title": "Character stuck against wall, unresponsive to movement inputs for 140 frames",
+  "anomaly_type": "unresponsive",
+  "is_real_bug": true,
+  "severity": 4,
+  "qoe_dimensions_affected": [
+    "usability",
+    "frustration",
+    "comfort",
+    "fairness"
+  ],
+  "reproduction_steps": [
+    "Move character to the position seen in frame 41, near the rocky wall edge",
+    "Continue pressing directional keys (right/left/down/up) and space to jump",
+    "Observe that the character and background remain almost pixel-identical across ~140 frames despite varied inputs",
+    "Note pixel_diff_median (0.666) is drastically lower than clean_play_median_diff (22.924), confirming lack of response"
+  ],
+  "suspected_cause": "Character likely got stuck on a wall/collision geometry or entered a state (e.g., blocked by an invisible collider or animation lock) that ignored subsequent movement and jump inputs.",
+  "evidence_note": "Compare frames 79, 118, and 157: character position, pose, and background are nearly identical despite a long, varied sequence of left/right/space/down inputs, indicating the game world was not updating in response to player actions.",
+  "confidence": 0.85,
+  "_anomaly": 0,
+  "_frames_sent": [
+    41,
+    79,
+    118,
+    157
+  ],
+  "_model": "anthropic/claude-sonnet-5"
+}

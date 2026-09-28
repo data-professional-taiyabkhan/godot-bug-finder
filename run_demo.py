@@ -1,148 +1,115 @@
-"""
-run_demo.py — one-shot demo runner.
+"""Launch the game, play it, inspect the run and score it against the planted bug.
 
-1. Launches the Godot platformer (1280x720 window, 800x480 game at 1x).
-2. Waits for the window, then brings it to the front so key presses land in
-   the game, not the terminal.
-3. Runs the Explorer (with the CLIP guard), then the Inspector (with CLIP
-   triage), then the Reporter if an API key is set.
-4. Watches the Godot process: if it exits early the Explorer stops cleanly
-   rather than capturing desktop content.
+    python run_demo.py [seconds] [--clean] [--no-guard]
 
-Usage:
-    .venv\\Scripts\\python run_demo.py [duration_seconds] [--clean] [--no-guard]
-
-    --clean     launch with planted bug 2 (the soft-lock) switched off
-    --no-guard  explore without the CLIP guard (the May behaviour)
-
-Keep hands off the keyboard and mouse while it runs: it presses real keys.
+--clean turns the planted soft-lock off. --no-guard plays without the focus
+and CLIP checks, as in May. Keep your hands off the keyboard while it runs:
+it presses real keys.
 """
 
 import argparse
+import json
 import os
 import subprocess
 import time
 from datetime import datetime
 
 import config
-from utils import focus_game_window
-
-ap = argparse.ArgumentParser(description="Run the full demo loop.")
-ap.add_argument("duration", nargs="?", type=int, default=60)
-ap.add_argument("--clean", action="store_true", help="Disable the planted soft-lock.")
-ap.add_argument("--no-guard", action="store_true", help="Explore without the CLIP guard.")
-args = ap.parse_args()
+from explorer import run_exploration
+from inspector import inspect_session
+from utils import focus_game_window, load_session
 
 
-# ─── 1. Launch Godot game window ────────────────────────────────────────────
-name = datetime.now().strftime("session_%Y%m%d_%H%M%S")
-session_dir = config.SESSIONS_DIR / name
-session_dir.mkdir(parents=True, exist_ok=True)
-game_log = session_dir / "game_events.jsonl"    # the game writes ground truth here
-
-env = dict(os.environ)
-env["GBF_EVENT_LOG"] = str(game_log)
-if args.clean:
-    env["GBF_SOFTLOCK"] = "0"
-print(f"[run_demo] Launching Godot platformer (1280x720), planted soft-lock "
-      f"{'OFF' if args.clean else 'ON'}...")
-godot_proc = subprocess.Popen(
-    [
-        config.GODOT_EXECUTABLE,
-        "--path",       config.GODOT_PROJECT,
-        "--resolution", "1280x720",
-        "--position",   "100,80",
-        "--windowed",
-    ],
-    env=env,
-    creationflags=subprocess.DETACHED_PROCESS,
-)
-print("[run_demo] Waiting 6 s for game to initialise...")
-time.sleep(6)
+def launch_game(event_log, softlock=True):
+    env = dict(os.environ, GBF_EVENT_LOG=str(event_log))
+    if not softlock:
+        env["GBF_SOFTLOCK"] = "0"
+    return subprocess.Popen(
+        [config.GODOT_EXECUTABLE, "--path", config.GODOT_PROJECT,
+         "--resolution", "1280x720", "--position", "100,80", "--windowed"],
+        env=env, creationflags=subprocess.DETACHED_PROCESS)
 
 
-# ─── 2. Bring Godot window to front ─────────────────────────────────────────
-if focus_game_window():
-    print(f"[run_demo] Focused the '{config.GAME_WINDOW_TITLE}' window.")
-else:
-    print("[run_demo] WARNING: could not auto-focus the game window.")
-    print("           Click the Godot game window NOW, then wait.")
-    time.sleep(4)
-time.sleep(1)  # let the focus change register
+# What each planted bug should show up as.
+EXPECTED_KIND = {"softlock": "unresponsive"}
 
 
-# ─── 3. Monkey-patch FrameGrabber to abort if Godot exits ───────────────────
-# A process-health check so the Explorer doesn't silently capture desktop
-# content after the game window closes. (The CLIP guard covers the other
-# case: the game is running but something else is on top.)
-import utils  # noqa: E402
+def score(session_dir, summaries):
+    """Match the anomalies against the planted bug, which the game logs when it fires.
 
-_original_grab = utils.FrameGrabber.grab
+    Anything left unmatched had no planted bug behind it: a false alarm, a
+    harness problem, or a real bug in the demo."""
+    frames = [e for e in load_session(session_dir) if e["kind"] == "frame"]
+    log = session_dir / "game_events.jsonl"
+    events = [json.loads(line) for line in log.read_text().splitlines() if line.strip()] if log.exists() else []
+    if not events:
+        print("[score] no planted bug fired in this run")
+
+    matched = set()
+    for event in events:
+        # the first frame captured after it fired
+        idx = next((i for i, f in enumerate(frames) if f["t"] >= event["t"]), None)
+        want = EXPECTED_KIND.get(event["event"])
+        hits = [s for s in summaries
+                if s["kind"] == want and idx is not None
+                and s["frame_start"] <= idx + config.INSPECTOR_FREEZE_FRAMES and s["frame_end"] >= idx]
+        matched.update(s["anomaly_index"] for s in hits)
+        if hits:
+            verdict = f"CAUGHT it: {want}, frames {hits[0]['frame_start']}-{hits[0]['frame_end']}"
+        else:
+            verdict = "MISSED it"
+        print(f"[score] planted '{event['event']}' fired at frame {idx}; the Inspector {verdict}")
+
+    for s in summaries:
+        if s["anomaly_index"] not in matched:
+            print(f"[score] no planted bug behind: {s['kind']} ({s['triage']}), "
+                  f"frames {s['frame_start']}-{s['frame_end']}")
 
 
-def _grab_with_health_check(self):
-    if godot_proc.poll() is not None:
-        raise RuntimeError(
-            f"[run_demo] Godot process exited (code={godot_proc.returncode}) "
-            "mid-session — stopping Explorer."
-        )
-    return _original_grab(self)
+def main():
+    ap = argparse.ArgumentParser(description="Run the whole loop against the Godot demo.")
+    ap.add_argument("duration", nargs="?", type=int, default=60, help="seconds of play (default 60)")
+    ap.add_argument("--clean", action="store_true", help="turn the planted soft-lock off")
+    ap.add_argument("--no-guard", action="store_true", help="no focus or CLIP checks, as in May")
+    args = ap.parse_args()
+
+    name = datetime.now().strftime("session_%Y%m%d_%H%M%S")
+    session_dir = config.SESSIONS_DIR / name
+    session_dir.mkdir(parents=True)
+
+    print(f"[run_demo] {name}: starting Godot, soft-lock {'off' if args.clean else 'on'}")
+    game = launch_game(session_dir / "game_events.jsonl", softlock=not args.clean)
+    time.sleep(6)  # give the window time to appear
+    if not focus_game_window():
+        print("[run_demo] could not find the game window: click it now")
+        time.sleep(4)
+    time.sleep(1)
+
+    def game_exited():
+        code = game.poll()
+        return None if code is None else f"game exited (code {code})"
+
+    try:
+        reason = run_exploration(args.duration, session_dir, guard=not args.no_guard,
+                                 stop_if=game_exited)
+    finally:
+        if game.poll() is None:
+            game.terminate()
+
+    summaries = inspect_session(session_dir)
+    print(f"\n{len(summaries)} anomalies")
+    for s in summaries:
+        print(f"  [{s['anomaly_index']:03d}] {s['kind']:12s} triage={s['triage']:8s} "
+              f"frames {s['frame_start']}-{s['frame_end']}")
+    score(session_dir, summaries)
+
+    if summaries and config.LLM_API_KEY.get(config.LLM_BACKEND):
+        from reporter import report_session
+        report_session(name)
+    elif summaries:
+        print(f"[run_demo] no API key, so no reports; later: python reporter.py {name}")
+    print(f"[run_demo] done ({reason}): {name}")
 
 
-utils.FrameGrabber.grab = _grab_with_health_check
-
-
-# ─── 4. Run Explorer + Inspector (+ Reporter if a key is set) ───────────────
-from explorer import run_exploration    # noqa: E402
-from inspector import inspect_session   # noqa: E402
-
-print(f"\n=== Run: {name} (duration={args.duration}s) ===\n")
-
-try:
-    run_exploration(args.duration, session_dir, guard=not args.no_guard)
-except RuntimeError as e:
-    print(f"\n[run_demo] Early exit: {e}")
-    print("[run_demo] Continuing with Inspector on frames captured so far...")
-
-# Stop the game before the Inspector loads CLIP, so nothing else is typing.
-if godot_proc.poll() is None:
-    print("\n[run_demo] Terminating Godot...")
-    godot_proc.terminate()
-else:
-    print(f"\n[run_demo] Godot had already exited (code={godot_proc.returncode}).")
-
-summaries = inspect_session(session_dir)
-print(f"\n=== Summary: {len(summaries)} anomalies found ===")
-for s in summaries:
-    print(
-        f"  [{s['anomaly_index']:03d}] {s['kind']:12s} triage={s['triage']:8s} "
-        f"magnitude={s['magnitude']:.1f}  frames={s['frame_start']}-{s['frame_end']}"
-    )
-
-# ─── 5. Score against the planted bug (ground truth written by the game) ────
-import json  # noqa: E402
-
-if game_log.exists():
-    truth = [json.loads(line) for line in game_log.read_text().splitlines() if line.strip()]
-    frames = [e for e in utils.load_session(session_dir) if e["kind"] == "frame"]
-    for ev in truth:
-        # first frame captured after the event fired
-        idx = next((i for i, f in enumerate(frames) if f["t"] >= ev["t"]), None)
-        hit = [s for s in summaries
-               if s["triage"] == "game" and idx is not None
-               and s["frame_start"] <= idx + config.INSPECTOR_FREEZE_FRAMES
-               and s["frame_end"] >= idx]
-        print(f"\n[score] planted '{ev['event']}' fired at frame {idx} "
-              f"(x={ev.get('x', 0):.0f}); Inspector {'CAUGHT it: ' + hit[0]['kind'] if hit else 'MISSED it'}")
-else:
-    print("\n[score] The planted soft-lock did not fire in this run (no game_events.jsonl).")
-
-key_set = config.ANTHROPIC_API_KEY if config.LLM_BACKEND == "anthropic" else config.OPENAI_API_KEY
-if summaries and key_set:
-    from reporter import report_session  # noqa: E402
-    report_session(name)
-elif summaries:
-    print("\n[run_demo] No API key set, so the Reporter was skipped. Run later with:")
-    print(f"           .venv\\Scripts\\python reporter.py {name}")
-
-print(f"\n[run_demo] Done. Session: {name}")
+if __name__ == "__main__":
+    main()

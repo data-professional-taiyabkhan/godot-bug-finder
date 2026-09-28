@@ -1,0 +1,23 @@
+{
+  "title": "False positive: normal platforming movement flagged as sudden jump",
+  "anomaly_type": "likely_false_positive",
+  "is_real_bug": false,
+  "severity": 1,
+  "qoe_dimensions_affected": [],
+  "reproduction_steps": [
+    "Play through the floating-platform level using left/right/jump inputs",
+    "Character moves across platforms, jumps, and traverses the visible level normally",
+    "Compare pixel_diff_median (22.155) to clean_play_median_diff (22.924) - nearly identical"
+  ],
+  "suspected_cause": "The character's normal movement and camera pan across platform sections likely produced a large pixel-diff magnitude that tripped the sudden_jump heuristic, but the diff median is in line with clean play and frames show continuous, coherent traversal rather than a discontinuity.",
+  "evidence_note": "Frames 19->27->35->43 show smooth, logical progression: character walks left, jumps across a gap, lands on a platform, then continues right while collecting coins. No teleport, texture pop, or scene break is visible; motion is consistent with the action_sequence of lefts/rights/jumps.",
+  "confidence": 0.82,
+  "_anomaly": 0,
+  "_frames_sent": [
+    19,
+    27,
+    35,
+    43
+  ],
+  "_model": "anthropic/claude-sonnet-5"
+}

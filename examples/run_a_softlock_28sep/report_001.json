@@ -1,0 +1,30 @@
+{
+  "title": "Character frozen mid-air for 150 frames despite continuous input",
+  "anomaly_type": "unresponsive",
+  "is_real_bug": true,
+  "severity": 4,
+  "qoe_dimensions_affected": [
+    "usability",
+    "frustration",
+    "fairness",
+    "comfort"
+  ],
+  "reproduction_steps": [
+    "Play through the platforming level near the observed area (orange trees, floating platforms)",
+    "Enter the jump/mid-air state where the character is airborne",
+    "Continue pressing movement keys (left/right/space/up/down) as in the action_sequence",
+    "Observe that the game world and character sprite stop updating for an extended period (~150 frames) despite continued key presses",
+    "Note that pixel_diff_median (0.913) is drastically lower than clean_play_median_diff (22.924), confirming near-zero visual change"
+  ],
+  "suspected_cause": "Likely a soft-lock or frozen game-state bug (possibly an infinite loop, stuck animation state, or input queue desync) that halts rendering/logic updates while still accepting inputs into a buffer.",
+  "evidence_note": "Compare frames 34, 75, 116, and 157: character position, enemy, coins, and background are pixel-identical across ~120 frames despite varied left/right/up/down/space inputs, indicating the game loop is not advancing despite active input.",
+  "confidence": 0.85,
+  "_anomaly": 1,
+  "_frames_sent": [
+    34,
+    75,
+    116,
+    157
+  ],
+  "_model": "anthropic/claude-sonnet-5"
+}

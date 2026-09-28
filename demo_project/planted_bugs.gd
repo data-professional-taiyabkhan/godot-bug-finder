@@ -1,33 +1,14 @@
-# =============================================================================
-# PLANTED BUG 2 (27 Sep 2026): timed soft-lock — the game pauses itself
-# =============================================================================
+# Planted bug 2: a timed soft-lock.
 #
-# DESCRIPTION
-# -----------
-# 30 s after the game starts, it calls get_tree().paused = true WITHOUT opening
-# the pause menu. The screen keeps rendering, but nothing moves and no input
-# does anything: a soft-lock. If GBF_EVENT_LOG is set, the moment it fires is
-# written there, so a run can be scored against it.
+# 30 s after start the game pauses itself (get_tree().paused = true) without
+# opening the pause menu. It keeps rendering, but nothing responds. The point
+# is ground truth for the Inspector: if GBF_EVENT_LOG is set, the moment it
+# fires is written there so run_demo.py can score the run.
 #
-# WHY IT EXISTS
-# -------------
-# Ground truth for the Inspector. Bug 1 (the ShortcutLedge in level.tscn) is
-# invisible to pixel differences, so it cannot test whether the detectors work.
-# This one should show up as a "frozen" anomaly that CLIP still labels as the
-# game, i.e. a game bug rather than a harness failure.
-#
-# It is a fault injection on a timer, so it tests inspection and triage, not
-# exploration. An earlier version fired only when the player stood in a zone
-# near the spawn point; it lived in level.gd, which (as in the upstream Godot
-# demo) is not attached to any scene, so it never ran. This file is attached
-# to the "PlantedBugs" node in game_singleplayer.tscn.
-#
-# SETTINGS (environment variables)
-# --------------------------------
-#   GBF_SOFTLOCK=0             turn it off (run_demo.py --clean does this)
-#   GBF_SOFTLOCK_AFTER_MS=500  change the delay (used for quick checks)
-#   GBF_EVENT_LOG=<path>       where to write the ground-truth event
-# =============================================================================
+# GBF_SOFTLOCK=0 turns it off (run_demo.py --clean); GBF_SOFTLOCK_AFTER_MS
+# changes the delay. Attached to the PlantedBugs node in
+# game_singleplayer.tscn, not to level.gd: as in the upstream demo, level.gd
+# is not attached to any scene, so code there never runs.
 
 extends Node
 

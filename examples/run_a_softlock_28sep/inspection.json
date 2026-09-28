@@ -1,0 +1,18 @@
+{
+  "session": "session_20260928_064221",
+  "frames": 199,
+  "frames_in_game": 199,
+  "thresholds": {
+    "diff_high": 43.03,
+    "diff_low": 1.52,
+    "freeze_frames": 30,
+    "source": "thresholds.json (calibrated on session_20260520_094721)",
+    "clean_median": 22.924
+  },
+  "clip_used": true,
+  "counts": {
+    "off_game": 0,
+    "sudden_jump": 1,
+    "unresponsive": 1
+  }
+}

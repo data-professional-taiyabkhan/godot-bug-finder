@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>godot-bug-finder runs</title>
+<meta name="description" content="Replays of real runs of a three-agent game tester: a planted soft-lock caught, a clean run, and a pop-up the agent recovered from.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #121a24;
+  --muted: #566273;
+  --rule: #d9dee6;
+  --flag: #9a5800;
+  --flag-mark: #e0901f;
+  --flag-band: rgba(242, 163, 58, 0.16);
+  --truth: #b3336e;
+  --ok: #0f7d70;
+  --bad: #b8433b;
+  --grid: #e6e9ee;
+  --shadow: 0 1px 2px rgba(18, 26, 36, 0.06);
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "Barlow", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1319;
+    --surface: #151c25;
+    --ink: #e8edf3;
+    --muted: #93a0b0;
+    --rule: #283241;
+    --flag: #f2a33a;
+    --flag-mark: #f2a33a;
+    --flag-band: rgba(242, 163, 58, 0.14);
+    --truth: #e0609a;
+    --ok: #3cc3b0;
+    --bad: #e5645c;
+    --grid: #1f2833;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1319;
+  --surface: #151c25;
+  --ink: #e8edf3;
+  --muted: #93a0b0;
+  --rule: #283241;
+  --flag: #f2a33a;
+  --flag-mark: #f2a33a;
+  --flag-band: rgba(242, 163, 58, 0.14);
+  --truth: #e0609a;
+  --ok: #3cc3b0;
+  --bad: #e5645c;
+  --grid: #1f2833;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 17px/1.6 var(--body);
+}
+.page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 48px 72px;
+  display: grid;
+  gap: 56px;
+}
+a { color: inherit; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--ink); }
+a:focus-visible, summary:focus-visible, video:focus-visible, button:focus-visible {
+  outline: 2px solid var(--flag-mark); outline-offset: 3px; border-radius: 4px;
+}
+h1, h2, h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  line-height: 1.1;
+  text-wrap: balance;
+  margin: 0;
+  letter-spacing: 0.005em;
+}
+h1 { font-size: clamp(2.2rem, 5.5vw, 3.4rem); }
+h2 { font-size: clamp(1.6rem, 3.6vw, 2.1rem); }
+h3 { font-size: 1.35rem; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow, .label {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mono, code, .num { font-family: var(--mono); font-size: 0.88em; }
+.num { font-variant-numeric: tabular-nums; }
+section, header, footer { display: grid; gap: 18px; }
+header { gap: 16px; }
+.lead { font-size: 1.12rem; color: var(--ink); }
+.byline { color: var(--muted); font-size: 0.98rem; }
+
+.runs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.run {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 16px 18px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  box-shadow: var(--shadow);
+  text-decoration: none;
+}
+.run .what { color: var(--muted); font-size: 0.95rem; }
+.status {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--display); font-weight: 600; font-size: 1.3rem; line-height: 1.2;
+}
+.status::before {
+  content: ""; width: 10px; height: 10px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.status.ok { color: var(--ok); }
+.status.warn { color: var(--flag); }
+.run .extra { font-size: 0.95rem; }
+.run .extra b { font-weight: 600; color: var(--flag); }
+
+figure { margin: 0; display: grid; gap: 10px; }
+video {
+  width: 100%; max-width: 100%; aspect-ratio: 16 / 9; display: block;
+  background: #0e1319; border-radius: 8px; border: 1px solid var(--rule);
+}
+figcaption { color: var(--muted); font-size: 0.95rem; max-width: 72ch; }
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px 22px;
+  margin: 0;
+}
+.facts dt {
+  font-family: var(--mono); font-size: 0.86rem; color: var(--muted);
+  padding-top: 3px; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.facts dd { margin: 0; max-width: 64ch; }
+.facts dd.flag { color: var(--ink); }
+.facts dd .tag { font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.9rem; margin-right: 6px; }
+.tag.flag { color: var(--flag); }
+.tag.truth { color: var(--truth); }
+.tag.ok { color: var(--ok); }
+.tag.bad { color: var(--bad); }
+
+.chart-card {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 16px 16px 12px; display: grid; gap: 8px; position: relative;
+}
+.chart-card svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart-card .axis text, .chart-card .lab { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+.chart-card .grid line { stroke: var(--grid); stroke-width: 1; }
+.chart-card .series { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+.chart-card .band { fill: var(--flag-band); }
+.chart-card .thr { stroke: var(--flag-mark); stroke-width: 1; stroke-dasharray: 5 4; }
+.chart-card .thr-lab { fill: var(--flag); font-family: var(--mono); font-size: 11px; }
+.chart-card .truth { stroke: var(--truth); stroke-width: 2; }
+.chart-card .truth-lab { fill: var(--truth); font-family: var(--mono); font-size: 11px; }
+.chart-card .jump { fill: var(--flag-mark); }
+.chart-card .cross { stroke: var(--muted); stroke-width: 1; }
+.chart-card .dot { fill: var(--ink); stroke: var(--surface); stroke-width: 2; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 2;
+  background: var(--ink); color: var(--bg);
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  padding: 7px 9px; border-radius: 6px; white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 12px));
+}
+.tip[hidden] { display: none !important; }
+details { font-size: 0.95rem; }
+summary { cursor: pointer; color: var(--muted); }
+.table-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; margin-top: 8px; border: 1px solid var(--rule); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.85rem; color: var(--muted); position: sticky; top: 0; background: var(--surface); }
+td.num, th.num { text-align: right; }
+
+.ticket {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 18px 20px; display: grid; gap: 12px; box-shadow: var(--shadow);
+}
+.ticket .t-title { font-family: var(--body); font-weight: 600; font-size: 1.12rem; line-height: 1.35; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font-family: var(--mono); font-size: 0.8rem; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--rule); color: var(--muted);
+}
+.chip.real { border-color: var(--bad); color: var(--bad); }
+.chip.notreal { border-color: var(--ok); color: var(--ok); }
+.ticket .field { display: grid; gap: 2px; }
+.ticket blockquote { margin: 0; color: var(--ink); max-width: 68ch; }
+.verdict { border-left: 3px solid var(--flag-mark); padding-left: 12px; }
+.small-ticket { font-size: 0.95rem; }
+
+.history td:first-child { white-space: nowrap; font-family: var(--mono); font-size: 0.84rem; color: var(--muted); }
+.history td:nth-child(2) { white-space: nowrap; }
+
+.parts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.part { border-top: 2px solid var(--rule); padding-top: 12px; display: grid; gap: 6px; align-content: start; }
+.part .file { font-family: var(--mono); font-size: 0.82rem; color: var(--muted); }
+
+ol.limits { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; max-width: 70ch; }
+footer { border-top: 1px solid var(--rule); padding-top: 22px; color: var(--muted); font-size: 0.95rem; }
+
+@media (max-width: 720px) {
+  .runs, .parts { grid-template-columns: 1fr; }
+  .facts { grid-template-columns: 1fr; gap: 2px 0; }
+  .facts dd { margin-bottom: 10px; }
+  .page { gap: 44px; padding-block: 32px 56px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+
+<header>
+  <div class="eyebrow">godot-bug-finder &middot; test runs &middot; 28 September 2026</div>
+  <h1>A game tester that plays, notices, and writes it up</h1>
+  <p class="lead">Three agents test a Godot platformer. The Explorer plays it with random key presses while a local CLIP model checks it is still looking at the game. The Inspector flags stretches where the screen jumps or stops responding. The Reporter asks a vision LLM for a bug report. Below are three real runs from this morning, two of them as replays, and every number on this page comes from the runs' own log files.</p>
+  <p class="byline">Mohammad Taiyab Khan &middot; code and README: <a href="https://github.com/data-professional-taiyabkhan/godot-bug-finder">github.com/data-professional-taiyabkhan/godot-bug-finder</a></p>
+</header>
+
+<section aria-label="Results at a glance">
+  <div class="runs">
+    <a class="run" href="#run-a">
+      <span class="label">Run A &middot; soft-lock planted</span>
+      <span class="status ok">Caught</span>
+      <span class="what">unresponsive, frames <span class="num">49&ndash;198</span></span>
+      <span class="extra"><b>1 false alarm</b>, dismissed by the Reporter</span>
+    </a>
+    <a class="run" href="#run-c">
+      <span class="label">Run C &middot; pop-up over the game</span>
+      <span class="status ok">Recovered</span>
+      <span class="what">back in play <span class="num">0.8 s</span> after the check, first attempt</span>
+      <span class="extra"><b>1 frame mis-triaged</b> as game</span>
+    </a>
+    <a class="run" href="#run-b">
+      <span class="label">Run B &middot; nothing planted</span>
+      <span class="status ok">No anomalies</span>
+      <span class="what"><span class="num">198</span> frames, <span class="num">60 s</span></span>
+      <span class="extra">no false alarms</span>
+    </a>
+  </div>
+</section>
+
+<section id="run-a">
+  <h2>Run A: a planted soft-lock</h2>
+  <p>Thirty seconds after the game starts, a planted script pauses it without opening the pause menu. The screen keeps drawing and nothing responds. The agent is not told when, and the game writes the exact time to a log so the run can be scored.</p>
+  <figure>
+    <video controls muted playsinline preload="metadata" poster="replay_poster.jpg" src="replay.mp4"></video>
+    <figcaption>Replay at 2&times; speed, 41 s. Left: the agent's own 800&times;480 captures. Right: the key it pressed next, CLIP's answer to "is this the game?", and how much the frame changed. The flags come from the Inspector, which runs after the run.</figcaption>
+  </figure>
+
+  <div class="chart-card" id="chart-a">
+    <div class="label">Change from the previous frame, run A, by frame (mean grey levels, 0&ndash;255)</div>
+    <svg viewBox="0 0 720 250" role="img" aria-labelledby="chart-a-desc"><desc id="chart-a-desc">Frame-to-frame change for 199 frames. It moves between about 3 and 32 during play, spikes to 54 at frame 46 when a jump moves the camera, and drops below 2 from frame 49 to the end, after the soft-lock fires just before frame 48.</desc></svg>
+    <div class="tip" hidden></div>
+    <details>
+      <summary>Show all 199 frames as a table</summary>
+      <div class="table-wrap"><table><thead><tr><th class="num">Frame</th><th class="num">Time</th><th>Key</th><th class="num">Change</th><th class="num">P(game)</th></tr></thead><tbody></tbody></table></div>
+    </details>
+  </div>
+
+  <dl class="facts">
+    <dt>14.3 s</dt><dd><span class="tag truth">Ground truth</span>The soft-lock fired just before frame 48.</dd>
+    <dt>frames 49&ndash;198</dt><dd><span class="tag flag">Unresponsive</span>Flagged from the next frame to the end of the run. Median change 0.91, against 22.9 in clean play.</dd>
+    <dt>every frame</dt><dd><span class="tag ok">Triage: game bug</span>CLIP said every frame was the game (lowest P(game) 0.99), so this was not the harness losing the window.</dd>
+    <dt>frames 46&ndash;47</dt><dd><span class="tag flag">False alarm</span>A sudden jump: change 54.4 and 44.2, over the 43.0 threshold. The player had jumped and the camera moved with it.</dd>
+  </dl>
+
+  <h3>What the Reporter wrote</h3>
+  <div class="ticket">
+    <div class="t-title">&ldquo;Character frozen mid-air for 150 frames despite continuous input&rdquo;</div>
+    <div class="chips"><span class="chip real">real bug</span><span class="chip">unresponsive</span><span class="chip">severity 4 / 5</span><span class="chip">confidence 0.85</span></div>
+    <div class="field"><span class="label">Suspected cause</span><blockquote>&ldquo;Likely a soft-lock or frozen game-state bug (possibly an infinite loop, stuck animation state, or input queue desync) that halts rendering/logic updates while still accepting inputs into a buffer.&rdquo;</blockquote></div>
+    <p class="verdict">It got the what right: a real bug, a soft-lock, serious. The why is a guess. It cannot see the script that paused the game, and its reproduction steps describe the scene rather than the cause, which is a timer. Nothing replays the inputs to check.</p>
+  </div>
+  <div class="ticket small-ticket">
+    <div class="t-title">&ldquo;Character position jump between platforms during normal traversal&rdquo;</div>
+    <div class="chips"><span class="chip notreal">not a real bug</span><span class="chip">likely false positive</span><span class="chip">severity 1 / 5</span><span class="chip">confidence 0.75</span></div>
+    <p>The false alarm at frame 46. It put it down to normal movement and camera scrolling, which matches what the frames show.</p>
+  </div>
+  <p class="byline">Reporter: Claude Sonnet 5 through OpenRouter. For each anomaly it gets four frames, the first from just before the anomaly, plus the Inspector's summary with the numbers above.</p>
+</section>
+
+<section id="run-c">
+  <h2>Run C: something covers the game</h2>
+  <p>In May, the game window dropped behind my IDE and the agent carried on pressing keys into whatever was in front. Its only two "bugs" that month were screenshots of my IDE. In this run a script opens a window over the game ten seconds in.</p>
+  <figure>
+    <video controls muted playsinline preload="metadata" poster="guard_poster.jpg" src="guard.mp4"></video>
+    <figcaption>Real time, 19 s. The extra frame after frame 34 is the one the guard checked. It is kept for evidence but never recorded as play.</figcaption>
+  </figure>
+  <dl class="facts">
+    <dt>10.1 s</dt><dd>The pop-up opens.</dd>
+    <dt>10.2 s</dt><dd><span class="tag bad">Slipped through</span>Frame 34 is recorded with the pop-up half over the game. CLIP gives it P(game) 0.53, just over the 0.5 cut-off.</dd>
+    <dt>10.6 s</dt><dd><span class="tag bad">Guard</span>The next CLIP check (every fifth tick) gives 0.37. No key is pressed and the game window is raised.</dd>
+    <dt>11.5 s</dt><dd><span class="tag ok">Recovered</span>P(game) 1.00, and play resumes at frame 35 on the first attempt.</dd>
+  </dl>
+  <p>Two things did not go to plan. Frame 34 went into the recording as game, so the Inspector called it a sudden jump rather than a harness problem. The Reporter dismissed it for the wrong reason: its four frames did not include frame 34, so it blamed the camera. And the pop-up never took keyboard focus, so the focus check did not fire. Only the CLIP half of the guard was tested.</p>
+</section>
+
+<section id="run-b">
+  <h2>Run B: nothing planted</h2>
+  <p>The same 60 seconds with the soft-lock switched off: 198 frames, zero anomalies, and the lowest P(game) was 0.98.</p>
+</section>
+
+<section id="history">
+  <h2>Every run so far, misses included</h2>
+  <div class="table-wrap" style="max-height:none">
+    <table class="history">
+      <thead><tr><th>Date</th><th>Run</th><th>What happened</th></tr></thead>
+      <tbody>
+        <tr><td>20 May</td><td>4 May runs</td><td>Two anomalies flagged, both my IDE captured after the game window dropped out. The Reporter never ran, and the planted ledge bug was never tested.</td></tr>
+        <tr><td>27 Sep</td><td>Runs 1 and 2</td><td>The planted soft-lock never fired: its code sat in <code>level.gd</code>, which no scene loads. I first blamed the Explorer for not reaching it, which was wrong.</td></tr>
+        <tr><td>27 Sep</td><td>Run 3</td><td>Fired at frame 55 and was missed. The first rule wanted every one of 30 frames below 0.76, but a paused game still animates its grass. Rewritten as a 30-frame median.</td></tr>
+        <tr><td>27 Sep</td><td>Run 4</td><td>A fresh run with the new rule fixed beforehand: caught, frames 56&ndash;195.</td></tr>
+        <tr><td>28 Sep</td><td>Run A</td><td>Caught, frames 49&ndash;198. One sudden-jump false alarm.</td></tr>
+        <tr><td>28 Sep</td><td>Run B</td><td>Zero anomalies with nothing planted.</td></tr>
+        <tr><td>28 Sep</td><td>Run C, first try</td><td>A setup error: the pop-up came and went while Godot and CLIP were still loading. The test now waits for the first frame.</td></tr>
+        <tr><td>28 Sep</td><td>Run C</td><td>Recovered on the first attempt; one frame mis-triaged.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Offline, CLIP gets all 416 labelled frames from May right (328 game, 88 IDE or black screen), zero-shot, with its prompts fixed before the test. That is a sanity check on one game and one IDE, not a benchmark. After this weekend's code clean-up, re-inspecting all eight earlier runs gave identical anomalies and identical per-frame numbers.</p>
+</section>
+
+<section id="how">
+  <h2>How it works</h2>
+  <div class="parts">
+    <div class="part"><h3>Explorer</h3><span class="file">explorer.py</span><p>Plays with a seeded mix of random keys and short committed runs left or right. It aims for 10 fps but records about 3.3, because pyautogui waits 0.1 s after every key event, so 30 frames is about 9 s.</p></div>
+    <div class="part"><h3>Guard</h3><span class="file">explorer.py, perception.py</span><p>Before each key press it checks that the game window has focus, and every fifth tick it asks CLIP (ViT-B/32, on the CPU) whether the frame is the game. If either check fails, it presses nothing and tries three times to get the game back, then stops.</p></div>
+    <div class="part"><h3>Inspector</h3><span class="file">inspector.py, calibrate.py</span><p>Runs after the run. A sudden jump is a frame change over 43.0. Unresponsive means a 30-frame median change under 1.52 while at least half the keys are moves. Both thresholds come from one clean minute of play. CLIP decides whether an anomaly is a game bug or a harness problem.</p></div>
+    <div class="part"><h3>Reporter</h3><span class="file">reporter.py</span><p>Sends four frames and the Inspector's summary to a vision LLM and asks for a JSON bug report: title, severity, reproduction steps, suspected cause, and whether it is a real bug at all.</p></div>
+  </div>
+</section>
+
+<section id="limits">
+  <h2>What it can't do yet</h2>
+  <ol class="limits">
+    <li>Explore with purpose. The key sequence is random with a fixed seed. There is no learned policy and no coverage goal.</li>
+    <li>See a gameplay bug that doesn't change the whole screen. A second planted bug, a ledge you fall through, is invisible to pixel change and to a whole-frame CLIP check.</li>
+    <li>Trust its thresholds. They come from one clean minute, and the jump threshold has already fired on a camera move.</li>
+    <li>Keep other windows out of the evidence. A half-covered frame passed the 0.5 cut-off in run C. Capturing the game window itself, not a region of the screen, would fix that.</li>
+    <li>Confirm what the Reporter says. Its causes and reproduction steps are unverified, and nothing replays the inputs.</li>
+    <li>Run anywhere but Windows, on anything but this one game, from outside the engine.</li>
+  </ol>
+</section>
+
+<footer>
+  <p>Built by Mohammad Taiyab Khan (<a href="https://taiyab.autostrata.ai">taiyab.autostrata.ai</a>). I started it in May 2026 as my own prototype for a University of Surrey PhD application, a studentship co-supervised with Sony Interactive Entertainment. It is not affiliated with either. The game is Godot's MIT-licensed 2D platformer demo with two planted bugs.</p>
+</footer>
+
+</main>
+<script>
+(function () {
+  var A = [[0,0.0,"left",0.0,0.9995],[1,0.28,"right",24.272,0.9996],[2,0.57,"left",17.878,0.9998],[3,0.85,"left",23.362,0.9998],[4,1.14,"left",22.778,0.9991],[5,1.51,"left",21.781,0.9989],[6,1.8,"left",15.388,0.9976],[7,2.09,"left",3.532,0.9963],[8,2.37,"left",3.628,0.9946],[9,2.65,"left",3.975,0.9953],[10,3.03,"left",4.829,0.9951],[11,3.32,"down",4.127,0.9961],[12,3.61,"right",3.018,0.9951],[13,3.89,"right",22.719,0.9995],[14,4.17,"right",22.277,0.9993],[15,4.55,"right",23.433,0.9998],[16,4.84,"left",25.304,0.9971],[17,5.12,"left",19.935,0.9993],[18,5.4,"left",25.317,0.9995],[19,5.69,"left",24.049,0.9993],[20,6.07,"left",21.593,0.9987],[21,6.35,"left",22.109,0.997],[22,6.64,"down",3.893,0.9974],[23,6.92,"space",3.89,0.9974],[24,7.2,"left",3.515,0.9951],[25,7.58,"right",4.031,0.9949],[26,7.87,"up",23.058,0.9991],[27,8.15,"left",14.294,0.9993],[28,8.44,"left",21.649,0.999],[29,8.72,"left",13.289,0.9925],[30,9.1,"left",4.016,0.9925],[31,9.39,"left",5.571,0.9954],[32,9.67,"left",4.39,0.998],[33,9.95,"right",4.111,0.9967],[34,10.24,"right",22.84,0.9993],[35,10.62,"right",29.319,0.9999],[36,10.9,"right",31.505,0.9998],[37,11.18,"up",31.193,0.9999],[38,11.47,"left",31.503,0.9996],[39,11.75,"down",25.613,0.9998],[40,12.13,"right",16.458,0.9997],[41,12.42,"right",25.155,0.9999],[42,12.7,"right",27.126,0.9997],[43,12.99,"right",31.131,0.9998],[44,13.27,"down",30.598,0.9995],[45,13.65,"up",17.899,0.9995],[46,13.93,"left",54.373,0.9998],[47,14.22,"left",44.23,0.9998],[48,14.5,"left",34.844,0.9995],[49,14.79,"left",0.976,0.9996],[50,15.17,"left",0.781,0.9996],[51,15.45,"left",4.032,0.9996],[52,15.74,"left",1.092,0.9997],[53,16.02,"right",0.799,0.9997],[54,16.3,"space",0.657,0.9997],[55,16.68,"right",0.07,0.9997],[56,16.97,"right",0.676,0.9997],[57,17.25,"right",0.799,0.9997],[58,17.54,"right",1.075,0.9996],[59,17.82,"right",2.741,0.9996],[60,18.2,"right",2.277,0.9996],[61,18.49,"left",0.981,0.9995],[62,18.77,"right",0.768,0.9995],[63,19.05,"right",1.2,0.9995],[64,19.34,"right",1.222,0.9995],[65,19.72,"right",0.6,0.9996],[66,20.0,"right",0.843,0.9995],[67,20.29,"right",1.329,0.9995],[68,20.57,"right",1.087,0.9995],[69,20.85,"right",0.722,0.9995],[70,21.23,"down",0.869,0.9996],[71,21.52,"right",3.04,0.9996],[72,21.8,"right",2.206,0.9997],[73,22.09,"right",0.843,0.9997],[74,22.37,"right",0.762,0.9997],[75,22.75,"left",0.59,0.9997],[76,23.04,"left",0.3,0.9997],[77,23.32,"left",0.71,0.9997],[78,23.6,"left",0.785,0.9997],[79,23.89,"left",1.322,0.9996],[80,24.27,"left",3.603,0.9996],[81,24.55,"left",1.071,0.9995],[82,24.84,"right",0.937,0.9995],[83,25.12,"right",0.823,0.9995],[84,25.4,"right",1.408,0.9995],[85,25.78,"right",1.065,0.9996],[86,26.07,"right",0.141,0.9996],[87,26.35,"space",0.908,0.9995],[88,26.63,"space",1.417,0.9995],[89,26.92,"left",0.911,0.9995],[90,27.29,"left",0.746,0.9995],[91,27.57,"left",1.172,0.9996],[92,27.85,"left",3.281,0.9996],[93,28.14,"left",1.651,0.9997],[94,28.42,"down",0.796,0.9996],[95,28.79,"right",0.744,0.9997],[96,29.07,"right",0.533,0.9997],[97,29.35,"right",0.475,0.9997],[98,29.64,"right",0.706,0.9997],[99,29.92,"right",0.792,0.9997],[100,30.3,"right",1.455,0.9996],[101,30.59,"right",3.55,0.9996],[102,30.87,"right",1.101,0.9995],[103,31.15,"right",0.798,0.9995],[104,31.44,"right",0.858,0.9995],[105,31.81,"left",1.458,0.9995],[106,32.1,"left",0.993,0.9996],[107,32.39,"left",0.208,0.9996],[108,32.67,"left",0.99,0.9995],[109,32.95,"left",1.446,0.9995],[110,33.33,"left",0.839,0.9995],[111,33.6,"left",1.108,0.9996],[112,33.89,"left",0.782,0.9996],[113,34.17,"left",3.53,0.9996],[114,34.45,"left",1.465,0.9997],[115,34.82,"left",0.79,0.9997],[116,35.1,"left",0.82,0.9997],[117,35.39,"down",0.217,0.9997],[118,35.67,"down",0.483,0.9997],[119,35.95,"left",0.735,0.9996],[120,36.33,"left",0.805,0.9997],[121,36.6,"left",2.312,0.9996],[122,36.89,"left",2.603,0.9996],[123,37.17,"left",1.153,0.9995],[124,37.45,"left",0.758,0.9995],[125,37.84,"left",0.911,0.9995],[126,38.12,"left",1.656,0.9995],[127,38.4,"left",0.684,0.9996],[128,38.69,"down",0.308,0.9996],[129,38.97,"up",1.065,0.9995],[130,39.34,"right",1.408,0.9995],[131,39.62,"right",0.94,0.9995],[132,39.9,"right",0.981,0.9996],[133,40.19,"right",0.781,0.9996],[134,40.47,"right",3.605,0.9996],[135,40.84,"up",1.397,0.9997],[136,41.12,"right",0.94,0.9997],[137,41.4,"left",0.652,0.9997],[138,41.68,"up",0.085,0.9997],[139,41.97,"down",0.477,0.9997],[140,42.34,"right",0.768,0.9996],[141,42.62,"right",1.087,0.9997],[142,42.9,"down",2.308,0.9996],[143,43.19,"down",2.822,0.9996],[144,43.47,"left",0.691,0.9995],[145,43.84,"right",0.732,0.9995],[146,44.14,"right",1.29,0.9995],[147,44.42,"right",1.334,0.9995],[148,44.7,"right",0.69,0.9996],[149,44.99,"right",0.459,0.9995],[150,45.36,"right",1.055,0.9995],[151,45.64,"left",1.559,0.9995],[152,45.92,"left",0.772,0.9995],[153,46.2,"left",0.95,0.9996],[154,46.49,"left",0.877,0.9996],[155,46.86,"left",3.619,0.9996],[156,47.14,"left",1.443,0.9997],[157,47.42,"left",0.798,0.9997],[158,47.7,"left",0.658,0.9997],[159,47.99,"left",0.07,0.9997],[160,48.37,"left",0.542,0.9997],[161,48.65,"down",0.914,0.9997],[162,48.94,"right",1.075,0.9996],[163,49.22,"down",2.74,0.9996],[164,49.5,"right",2.277,0.9996],[165,49.87,"right",0.809,0.9995],[166,50.15,"right",0.884,0.9995],[167,50.43,"right",1.159,0.9995],[168,50.72,"right",1.289,0.9995],[169,51.0,"right",0.637,0.9996],[170,51.39,"space",0.47,0.9995],[171,51.67,"up",1.53,0.9995],[172,51.96,"down",1.082,0.9995],[173,52.24,"right",0.741,0.9995],[174,52.52,"right",0.899,0.9996],[175,52.9,"right",1.156,0.9996],[176,53.19,"right",3.875,0.9997],[177,53.47,"right",0.992,0.9997],[178,53.75,"right",0.767,0.9997],[179,54.04,"left",0.618,0.9997],[180,54.41,"left",0.0,0.9997],[181,54.7,"left",0.747,0.9997],[182,54.99,"left",0.803,0.9997],[183,55.27,"left",1.2,0.9996],[184,55.55,"left",3.533,0.9996],[185,55.93,"left",1.171,0.9996],[186,56.2,"left",1.016,0.9995],[187,56.49,"left",0.779,0.9995],[188,56.77,"left",1.326,0.9995],[189,57.06,"left",1.163,0.9995],[190,57.43,"left",0.509,0.9996],[191,57.72,"left",0.851,0.9995],[192,58.0,"left",1.442,0.9995],[193,58.29,"left",1.047,0.9995],[194,58.57,"left",0.688,0.9995],[195,58.94,"left",0.811,0.9996],[196,59.24,"left",3.301,0.9995],[197,59.52,"right",1.961,0.9997],[198,59.8,"down",0.831,0.9996]];
+  var THR_HIGH = 43.03, THR_LOW = 1.52, TRUTH = 48, JUMP = 46, FLAG = [49, 198];
+  var card = document.getElementById("chart-a");
+  var svg = card.querySelector("svg");
+  var tip = card.querySelector(".tip");
+  var NS = "http://www.w3.org/2000/svg";
+  var L = 34, R = 10, T = 26, B = 30, Wd = 720, Hd = 250;
+  var pw = Wd - L - R, ph = Hd - T - B, n = A.length, YMAX = 60;
+  function x(i) { return L + pw * i / (n - 1); }
+  function y(v) { return T + ph - ph * Math.min(v, YMAX) / YMAX; }
+  function el(name, attrs, parent) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    (parent || svg).appendChild(e);
+    return e;
+  }
+  var grid = el("g", { "class": "grid" });
+  var axis = el("g", { "class": "axis" });
+  [0, 20, 40, 60].forEach(function (v) {
+    el("line", { x1: L, x2: Wd - R, y1: y(v), y2: y(v) }, grid);
+    var t = el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end" }, axis);
+    t.textContent = v;
+  });
+  [0, 50, 100, 150, 198].forEach(function (f) {
+    var t = el("text", { x: x(f), y: Hd - 10, "text-anchor": "middle" }, axis);
+    t.textContent = f;
+  });
+  el("rect", { "class": "band", x: x(FLAG[0]), y: T, width: x(FLAG[1]) - x(FLAG[0]), height: ph });
+  el("line", { "class": "thr", x1: L, x2: Wd - R, y1: y(THR_HIGH), y2: y(THR_HIGH) });
+  el("line", { "class": "thr", x1: L, x2: Wd - R, y1: y(THR_LOW), y2: y(THR_LOW) });
+  var t1 = el("text", { "class": "thr-lab", x: Wd - R, y: y(THR_HIGH) - 6, "text-anchor": "end" });
+  t1.textContent = "sudden jump above 43.0";
+  var t2 = el("text", { "class": "thr-lab", x: Wd - R, y: y(9), "text-anchor": "end" });
+  t2.textContent = "unresponsive: 30-frame median below 1.52 (dashed line)";
+  var t3 = el("text", { "class": "thr-lab", x: (x(FLAG[0]) + x(FLAG[1])) / 2, y: T + 16, "text-anchor": "middle" });
+  t3.textContent = "flagged unresponsive, frames 49-198";
+  el("line", { "class": "truth", x1: x(TRUTH), x2: x(TRUTH), y1: T - 12, y2: T + ph });
+  var t4 = el("text", { "class": "truth-lab", x: x(TRUTH) + 6, y: T - 4 });
+  t4.textContent = "soft-lock fired";
+  el("path", { "class": "jump", d: "M" + (x(JUMP) - 6) + " " + (T - 14) + "h12l-6 8z" });
+  var t5 = el("text", { "class": "thr-lab", x: x(JUMP) - 10, y: T - 6, "text-anchor": "end" });
+  t5.textContent = "false alarm";
+  var d = A.map(function (r, i) { return (i ? "L" : "M") + x(i).toFixed(1) + " " + y(r[3]).toFixed(1); }).join("");
+  el("path", { "class": "series", d: d });
+  var cross = el("line", { "class": "cross", y1: T, y2: T + ph, visibility: "hidden" });
+  var dot = el("circle", { "class": "dot", r: 4.5, visibility: "hidden" });
+  var hit = el("rect", { x: L, y: 0, width: pw, height: Hd, fill: "transparent" });
+  function show(evt) {
+    var box = svg.getBoundingClientRect();
+    var sx = (evt.clientX - box.left) * Wd / box.width;
+    var i = Math.max(0, Math.min(n - 1, Math.round((sx - L) / pw * (n - 1))));
+    var r = A[i];
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(r[3])); dot.setAttribute("visibility", "visible");
+    var note = i >= FLAG[0] ? "  flagged" : (r[3] > THR_HIGH ? "  over 43.0" : "");
+    tip.textContent = "frame " + r[0] + " · " + r[1].toFixed(1) + " s · key " + r[2] +
+      "\nchange " + r[3].toFixed(2) + " · P(game) " + r[4].toFixed(3) + note;
+    tip.style.whiteSpace = "pre";
+    var cb = card.getBoundingClientRect();
+    tip.style.left = (box.left - cb.left + x(i) * box.width / Wd) + "px";
+    tip.style.top = (box.top - cb.top + y(r[3]) * box.height / Hd) + "px";
+    tip.hidden = false;
+  }
+  function hide() { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); }
+  hit.addEventListener("pointermove", show);
+  hit.addEventListener("pointerdown", show);
+  hit.addEventListener("pointerleave", hide);
+  var tb = card.querySelector("tbody");
+  tb.innerHTML = A.map(function (r) {
+    return "<tr><td class='num'>" + r[0] + "</td><td class='num'>" + r[1].toFixed(1) + " s</td><td>" + r[2] +
+      "</td><td class='num'>" + r[3].toFixed(2) + "</td><td class='num'>" + r[4].toFixed(3) + "</td></tr>";
+  }).join("");
+})();
+</script>
+</body>
+</html>

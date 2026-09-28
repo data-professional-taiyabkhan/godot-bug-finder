@@ -11,7 +11,7 @@
   },
   "lowest_p_game_on_a_game_frame": 0.9705,
   "highest_p_game_on_a_not_game_frame": 0.0217,
-  "ms_per_frame_cpu": 82.3,
+  "ms_per_frame_cpu": 141.4,
   "cut_off": 0.5,
   "prompts": {
     "game": [

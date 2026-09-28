@@ -10,6 +10,6 @@
   },
   "diff_high": 43.03,
   "diff_low": 1.52,
-  "rule": "jump: diff > 1.5 x clean max; unresponsive: 3 s median diff < 1.0 x clean min while pressing movement keys",
-  "created": "2026-09-27"
+  "rule": "jump: diff > 1.5 x clean max; unresponsive: 30-frame median diff < 1.0 x clean min while pressing movement keys",
+  "created": "2026-09-28"
 }

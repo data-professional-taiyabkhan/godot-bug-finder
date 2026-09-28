@@ -1,218 +1,153 @@
-"""
-Reporter agent — produces structured, triage-ready bug reports.
+"""Reporter: turns each anomaly into a short bug report with a vision LLM.
 
-For each anomaly the Inspector flagged, the Reporter sends a small bundle
-of evidence (a few sampled frames + the action sequence) to a vision LLM
-and asks for a structured report. Output is JSON: title, reproduction
-steps, severity (1–5), suspected cause, evidence pointers.
+For every anomaly it sends four frames from the evidence folder (the first
+from just before the anomaly, where there is one) and the Inspector's summary,
+and asks for a JSON report: title, severity 1-5, reproduction steps, suspected
+cause, and whether it is a real bug at all. Severity is the model's zero-shot
+guess; there is no player-experience data behind it.
 
-This is where the QoE severity model from the PhD listing would plug in
-properly. For the demo, severity is asked of the LLM along with everything
-else; the production system would replace that with a learned ranker
-calibrated against human QA judgements.
-
-Backend: defaults to Anthropic (Claude). Switch via config.LLM_BACKEND.
+Backend and model are set in config.py (OpenRouter by default).
 """
 
 import argparse
-import base64
 import json
 from pathlib import Path
-from typing import Optional
 
 import cv2
 
 import config
 from utils import frame_to_base64
 
+SYSTEM_PROMPT = """You are a QA engineer reviewing detections from an automated game-testing agent.
+For each candidate anomaly you get a few frames in time order and the Inspector's summary.
 
-# ─────────────────────────────────────────────────────────────────────────
-# PROMPT
-# ─────────────────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are a QA engineer reviewing automated bug detections from a game-testing agent.
-For each candidate anomaly you receive:
-  • The anomaly type (off_game, sudden_jump or unresponsive)
-  • A triage hint from a CLIP model: "harness" means the captured frames did not
-    look like the game at all (lost window, desktop, another app); "game" means they did
-  • The action sequence that led up to it
-  • A small set of in-order frames showing the moment of interest
+What the summary fields mean:
+- kind: off_game (the frames are not the game at all), sudden_jump (a one-frame visual jump),
+  or unresponsive (the screen barely changed for a while as the agent kept pressing movement keys)
+- triage: "harness" if a CLIP model said the frames do not show the game (lost window, desktop,
+  another app), "game" if they do
+- pixel_diff_median: median change between consecutive frames during the anomaly, in grey levels
+  (0-255); clean_play_median_diff is the same measure for a normal run of this game
+- action_sequence: the keys the agent pressed during the anomaly
 
-Return a single JSON object with this exact schema:
-
+Return one JSON object with exactly these keys:
 {
-  "title":         "short imperative title, max 80 chars",
-  "anomaly_type":  "<off_game | sudden_jump | unresponsive | likely_false_positive>",
-  "is_real_bug":   true | false,
-  "severity":      1 to 5  (1 = cosmetic, 3 = noticeable, 5 = game-breaking),
-  "qoe_dimensions_affected": ["immersion" | "fairness" | "comfort" | "usability" | "frustration" | ...],
-  "reproduction_steps": ["ordered", "human-readable", "steps"],
-  "suspected_cause":   "one or two sentences",
-  "evidence_note":     "what the reviewer should look for in the attached frames",
-  "confidence":        0.0 to 1.0
+  "title": "short title, max 80 characters",
+  "anomaly_type": "off_game | sudden_jump | unresponsive | likely_false_positive",
+  "is_real_bug": true or false,
+  "severity": 1 to 5 (1 cosmetic, 3 noticeable, 5 game-breaking),
+  "qoe_dimensions_affected": ["immersion", "fairness", "comfort", "usability", "frustration", ...],
+  "reproduction_steps": ["ordered", "steps"],
+  "suspected_cause": "one or two sentences",
+  "evidence_note": "what a reviewer should look for in the frames",
+  "confidence": 0.0 to 1.0
 }
 
-Be honest: if the frames look like normal gameplay or scene transitions, set is_real_bug=false.
-If the frames do not show the game at all, it is a test-harness problem, not a game bug: set is_real_bug=false.
-Do not include any text outside the JSON object."""
+Be honest. If the frames look like normal play or a scene transition, set is_real_bug to false.
+If the frames do not show the game, it is a test-harness problem, not a game bug: is_real_bug false.
+No text outside the JSON object."""
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# FRAME SAMPLING
-# ─────────────────────────────────────────────────────────────────────────
-def sample_frames(evidence_dir: Path, n: int) -> list[str]:
-    """Pick `n` frames evenly spaced from the evidence folder and base64-encode them."""
-    frame_paths = sorted(evidence_dir.glob("frame_*.jpg"))
-    if not frame_paths:
-        return []
-    if len(frame_paths) <= n:
-        chosen = frame_paths
-    else:
-        step = len(frame_paths) / n
-        chosen = [frame_paths[int(i * step)] for i in range(n)]
-
-    encoded = []
-    for fp in chosen:
-        img = cv2.imread(str(fp))
+def sample_frames(evidence_dir, n):
+    """n evenly spaced frames from an evidence folder, as (frame number, base64 JPEG)."""
+    paths = sorted(evidence_dir.glob("frame_*.jpg"))
+    if len(paths) > n:
+        step = len(paths) / n
+        paths = [paths[int(i * step)] for i in range(n)]
+    frames = []
+    for path in paths:
+        img = cv2.imread(str(path))
         if img is not None:
-            encoded.append(frame_to_base64(img))
-    return encoded
+            frames.append((int(path.stem.split("_")[1]), frame_to_base64(img)))
+    return frames
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# LLM CALL — Anthropic
-# ─────────────────────────────────────────────────────────────────────────
-def call_anthropic(summary: dict, b64_frames: list[str]) -> dict:
-    """Single Claude call with system prompt + interleaved frames + summary."""
-    try:
+def ask_model(summary, frames):
+    """Send one anomaly to the configured model and return its reply as text."""
+    backend = config.LLM_BACKEND
+    key = config.LLM_API_KEY.get(backend)
+    if not key:
+        raise SystemExit(f"No API key for the '{backend}' backend; see the Reporter section of config.py.")
+
+    parts = []  # ("text", str) or ("image", base64), in order
+    for number, b64 in frames:
+        before = " (before the anomaly starts)" if number < summary["frame_start"] else ""
+        parts += [("text", f"Frame {number}{before}:"), ("image", b64)]
+    parts.append(("text", "Inspector summary:\n" + json.dumps(summary, indent=2)
+                  + "\n\nReturn the JSON report."))
+
+    if backend == "anthropic":
         from anthropic import Anthropic
-    except ImportError:
-        raise SystemExit("Install the anthropic SDK: pip install anthropic")
+        content = [{"type": "text", "text": v} if kind == "text" else
+                   {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": v}}
+                   for kind, v in parts]
+        resp = Anthropic(api_key=key).messages.create(
+            model=config.LLM_MODEL[backend], max_tokens=1500, system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": content}])
+        return resp.content[0].text
 
-    if not config.ANTHROPIC_API_KEY:
-        raise SystemExit("Set the ANTHROPIC_API_KEY environment variable.")
-
-    client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
-
-    user_blocks = []
-    for b64 in b64_frames:
-        user_blocks.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
-        })
-    user_blocks.append({
-        "type": "text",
-        "text": "Anomaly summary:\n" + json.dumps(summary, indent=2)
-                + "\n\nReturn the JSON report.",
-    })
-
-    resp = client.messages.create(
-        model=config.ANTHROPIC_MODEL,
-        max_tokens=800,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_blocks}],
-    )
-    return _parse_json(resp.content[0].text)
+    # OpenRouter speaks the OpenAI chat API, so both go through the openai SDK.
+    from openai import OpenAI
+    base_url = "https://openrouter.ai/api/v1" if backend == "openrouter" else None
+    content = [{"type": "text", "text": v} if kind == "text" else
+               {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{v}"}}
+               for kind, v in parts]
+    resp = OpenAI(api_key=key, base_url=base_url).chat.completions.create(
+        model=config.LLM_MODEL[backend], max_tokens=1500,
+        messages=[{"role": "system", "content": SYSTEM_PROMPT},
+                  {"role": "user", "content": content}])
+    return resp.choices[0].message.content
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# LLM CALL — OpenAI
-# ─────────────────────────────────────────────────────────────────────────
-def call_openai(summary: dict, b64_frames: list[str]) -> dict:
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise SystemExit("Install the openai SDK: pip install openai")
-
-    if not config.OPENAI_API_KEY:
-        raise SystemExit("Set the OPENAI_API_KEY environment variable.")
-
-    client = OpenAI(api_key=config.OPENAI_API_KEY)
-
-    user_content = []
-    for b64 in b64_frames:
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-        })
-    user_content.append({
-        "type": "text",
-        "text": "Anomaly summary:\n" + json.dumps(summary, indent=2)
-                + "\n\nReturn the JSON report.",
-    })
-
-    resp = client.chat.completions.create(
-        model=config.OPENAI_MODEL,
-        max_tokens=800,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_content},
-        ],
-    )
-    return _parse_json(resp.choices[0].message.content)
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# OUTPUT PARSING
-# ─────────────────────────────────────────────────────────────────────────
-def _parse_json(text: str) -> dict:
-    """Extract the first JSON object from an LLM response, tolerantly."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:].strip()
-    start = text.find("{")
-    end   = text.rfind("}")
+def parse_json(text):
+    """The outermost {...} in the reply; copes with code fences and chatter around it."""
+    start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
-        return {"error": "no JSON found", "raw": text}
+        return {"error": "no JSON in the reply", "raw": text}
     try:
         return json.loads(text[start:end + 1])
     except json.JSONDecodeError as e:
         return {"error": str(e), "raw": text}
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# DRIVER
-# ─────────────────────────────────────────────────────────────────────────
-def report_session(session_name: str) -> Path:
-    evidence_root = config.EVIDENCE_DIR / session_name
-    anomalies_path = evidence_root / "anomalies.json"
+def _severity(report):
+    try:
+        return float(report.get("severity", 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def report_session(name):
+    """Write reports/<name>/report_NNN.json for every anomaly in evidence/<name>."""
+    anomalies_path = config.EVIDENCE_DIR / name / "anomalies.json"
     if not anomalies_path.exists():
-        raise SystemExit(f"No anomalies index at {anomalies_path}. Run the Inspector first.")
-
-    summaries = json.loads(anomalies_path.read_text())
-    out_dir = config.REPORTS_DIR / session_name
+        raise SystemExit(f"{anomalies_path} not found: run the Inspector first.")
+    out_dir = config.REPORTS_DIR / name
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    backend_fn = call_anthropic if config.LLM_BACKEND == "anthropic" else call_openai
+    model = config.LLM_MODEL[config.LLM_BACKEND]
 
     reports = []
-    for s in summaries:
-        ev_dir = Path(s["evidence_dir"])
-        frames = sample_frames(ev_dir, config.LLM_FRAMES_PER_REPORT)
+    for s in json.loads(anomalies_path.read_text()):
+        frames = sample_frames(Path(s["evidence_dir"]), config.LLM_FRAMES_PER_REPORT)
         if not frames:
-            print(f"[reporter] No frames for anomaly {s['anomaly_index']}, skipping.")
+            print(f"[reporter] anomaly {s['anomaly_index']}: no frames, skipped")
             continue
-        print(f"[reporter] Drafting report for anomaly {s['anomaly_index']} ({s['kind']})...")
-        report = backend_fn(s, frames)
-        report["_source_anomaly"] = s["anomaly_index"]
-        report["_evidence_dir"]   = s["evidence_dir"]
-        out_path = out_dir / f"report_{s['anomaly_index']:03d}.json"
-        out_path.write_text(json.dumps(report, indent=2))
+        print(f"[reporter] anomaly {s['anomaly_index']} ({s['kind']}): asking {model}")
+        report = parse_json(ask_model(s, frames))
+        report.update(_anomaly=s["anomaly_index"], _frames_sent=[n for n, _ in frames], _model=model)
+        (out_dir / f"report_{s['anomaly_index']:03d}.json").write_text(json.dumps(report, indent=2))
         reports.append(report)
 
-    # Roll-up index sorted by severity (highest first).
-    reports.sort(key=lambda r: -r.get("severity", 0))
+    reports.sort(key=_severity, reverse=True)
     (out_dir / "index.json").write_text(json.dumps(reports, indent=2))
-    print(f"[reporter] {len(reports)} reports written to {out_dir}")
+    print(f"[reporter] {len(reports)} report(s) in {out_dir}")
     return out_dir
 
 
 def main():
-    p = argparse.ArgumentParser(description="Reporter agent.")
-    p.add_argument("session", help="Session name to report on.")
-    args = p.parse_args()
-    report_session(args.session)
+    p = argparse.ArgumentParser(description="Write bug reports for an inspected run.")
+    p.add_argument("session", help="a folder name under evidence/")
+    report_session(p.parse_args().session)
 
 
 if __name__ == "__main__":

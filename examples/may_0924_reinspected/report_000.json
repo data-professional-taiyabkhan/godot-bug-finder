@@ -1,0 +1,23 @@
+{
+  "title": "Test harness lost focus: IDE window captured instead of game",
+  "anomaly_type": "off_game",
+  "is_real_bug": false,
+  "severity": 1,
+  "qoe_dimensions_affected": [],
+  "reproduction_steps": [
+    "Run the automated testing agent against the game window",
+    "Allow focus to shift to the code editor/IDE (e.g. via alt-tab or window manager event)",
+    "Agent continues sending movement key presses while capturing frames of the IDE instead of the game"
+  ],
+  "suspected_cause": "The screen-capture pipeline or window focus was lost, causing the harness to capture the IDE window (Antigravity/VSCode) instead of the game process for ~85 frames; this is a test infrastructure issue, not a game defect.",
+  "evidence_note": "Frames 120-170 clearly show a code editor with Python source and an implementation plan document, not any game visuals. CLIP p_game is ~0, confirming non-game content.",
+  "confidence": 0.98,
+  "_anomaly": 0,
+  "_frames_sent": [
+    95,
+    120,
+    145,
+    170
+  ],
+  "_model": "anthropic/claude-sonnet-5"
+}

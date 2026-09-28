@@ -1,24 +1,12 @@
-"""
-Perception: a local CLIP model that answers one question about a frame.
+"""Is the Explorer looking at the game? A zero-shot CLIP check.
 
-    "Is the agent actually looking at the game?"
+CLIP (ViT-B/32) puts images and short captions in the same embedding space,
+so a frame can be compared with "a screenshot of a video game", "a screenshot
+of a code editor" and so on; the closest captions win. No training, no API
+key, about 80 ms a frame on a laptop CPU.
 
-CLIP (ViT-B/32) maps an image and a sentence into the same 512-number
-space, so we can compare a frame with short descriptions such as "a
-screenshot of a video game" or "a screenshot of a code editor" and see
-which one it is closest to. That is zero-shot classification: no training,
-no labels, no API key, about 80 ms per frame on my laptop's CPU (i5-11300H).
-
-Why it exists: in May the only two "bugs" this system ever flagged were my
-own IDE, captured after the game window dropped out, while the Explorer
-kept pressing keys into whatever window had focus. Pixel differences
-cannot tell "the scene scrolled" from "this is not the game any more".
-CLIP can, so the Explorer checks before it acts, and the Inspector uses
-the same check to separate harness failures from game bugs.
-
-What it does NOT do: it cannot see fine-grained physics bugs, such as a
-character falling through a ledge. That needs a model that reasons about
-what happens across frames (a VLM) or access to the game's state.
+It looks at the whole frame, so it can tell the game from an IDE, but not a
+normal jump from falling through a ledge.
 """
 
 import os
@@ -29,15 +17,11 @@ import numpy as np
 
 import config
 
-# Keep downloaded weights inside the project folder (easy to find and delete).
-os.environ.setdefault("HF_HOME", str(config.HF_CACHE_DIR))
+os.environ.setdefault("HF_HOME", str(config.HF_CACHE_DIR))  # keep the weights in the project
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# MODEL (loaded once, on first use)
-# ─────────────────────────────────────────────────────────────────────────
 @lru_cache(maxsize=1)
-def _model():
+def _load():
     import torch
     from transformers import CLIPModel, CLIPProcessor
 
@@ -46,77 +30,60 @@ def _model():
     return torch, model, processor
 
 
-def _unit(x: np.ndarray) -> np.ndarray:
+def _normalise(x):
     return x / np.linalg.norm(x, axis=-1, keepdims=True)
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# EMBEDDINGS
-# ─────────────────────────────────────────────────────────────────────────
-def embed_images(frames_bgr: list[np.ndarray], batch_size: int = 16) -> np.ndarray:
-    """Frames (OpenCV BGR arrays) -> unit-length CLIP image embeddings (N, 512).
-
-    The path is spelled out rather than hidden behind a helper: vision
-    encoder -> pooled [CLS] token -> projection into the shared space.
-    """
-    torch, model, processor = _model()
-    out = []
-    for i in range(0, len(frames_bgr), batch_size):
-        batch = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames_bgr[i:i + batch_size]]
-        pixels = processor(images=batch, return_tensors="pt")["pixel_values"]
+def embed_images(frames, batch_size=16):
+    """BGR frames -> unit-length CLIP image embeddings, shape (n, 512)."""
+    torch, model, processor = _load()
+    chunks = []
+    for i in range(0, len(frames), batch_size):
+        rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames[i:i + batch_size]]
+        pixels = processor(images=rgb, return_tensors="pt")["pixel_values"]
         with torch.no_grad():
+            # get_image_features() stopped returning a plain tensor in
+            # transformers 5, so do its two steps here: pool, then project.
             pooled = model.vision_model(pixel_values=pixels).pooler_output
-            out.append(model.visual_projection(pooled).numpy())
-    if not out:
+            chunks.append(model.visual_projection(pooled).numpy())
+    if not chunks:
         return np.zeros((0, model.config.projection_dim), dtype=np.float32)
-    return _unit(np.concatenate(out))
+    return _normalise(np.concatenate(chunks))
 
 
 @lru_cache(maxsize=1)
-def _prompt_embeddings() -> tuple[np.ndarray, int]:
-    """Unit-length embeddings of the game / not-game descriptions in config."""
-    torch, model, processor = _model()
-    prompts = config.GAME_PROMPTS + config.NOT_GAME_PROMPTS
-    tokens = processor(text=prompts, return_tensors="pt", padding=True)
+def _caption_embeddings():
+    torch, model, processor = _load()
+    tokens = processor(text=config.GAME_PROMPTS + config.NOT_GAME_PROMPTS,
+                       return_tensors="pt", padding=True)
     with torch.no_grad():
         pooled = model.text_model(input_ids=tokens["input_ids"],
                                   attention_mask=tokens["attention_mask"]).pooler_output
         text = model.text_projection(pooled).numpy()
-    return _unit(text), len(config.GAME_PROMPTS)
+    return _normalise(text)
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# THE QUESTION: IS THIS THE GAME?
-# ─────────────────────────────────────────────────────────────────────────
-def game_probability(image_embs: np.ndarray) -> np.ndarray:
-    """P(frame shows the game) for each embedding.
-
-    Cosine similarity to every description, scaled by CLIP's learned
-    temperature, softmaxed across all descriptions; the game descriptions'
-    probabilities are summed.
-    """
-    torch, model, _ = _model()
-    text, n_game = _prompt_embeddings()
-    logits = float(model.logit_scale.exp()) * image_embs @ text.T
+def game_probability(image_embs):
+    """P(game) per frame: softmax over all captions, summed over the game ones."""
+    _, model, _ = _load()
+    scale = model.logit_scale.detach().exp().item()  # CLIP's learned temperature
+    logits = scale * image_embs @ _caption_embeddings().T
     logits -= logits.max(axis=1, keepdims=True)
     probs = np.exp(logits)
     probs /= probs.sum(axis=1, keepdims=True)
-    return probs[:, :n_game].sum(axis=1)
+    return probs[:, :len(config.GAME_PROMPTS)].sum(axis=1)
 
 
-def best_description(image_embs: np.ndarray) -> list[str]:
-    """The single closest description for each frame (for logs and reports)."""
-    text, _ = _prompt_embeddings()
-    prompts = config.GAME_PROMPTS + config.NOT_GAME_PROMPTS
-    return [prompts[i] for i in np.argmax(image_embs @ text.T, axis=1)]
+def best_description(image_embs):
+    captions = config.GAME_PROMPTS + config.NOT_GAME_PROMPTS
+    return [captions[i] for i in np.argmax(image_embs @ _caption_embeddings().T, axis=1)]
 
 
-def is_game(frame_bgr: np.ndarray) -> tuple[bool, float]:
-    """One frame -> (looks like the game?, P(game))."""
-    p = float(game_probability(embed_images([frame_bgr]))[0])
+def is_game(frame):
+    p = float(game_probability(embed_images([frame]))[0])
     return p >= config.GAME_PROB_MIN, p
 
 
-def warm_up() -> None:
-    """Load the model before the clock starts (the first call takes seconds)."""
+def warm_up():
+    # The first call loads the model, which takes a few seconds.
     is_game(np.zeros((480, 800, 3), dtype=np.uint8))

@@ -1,0 +1,25 @@
+{
+  "title": "Character position jump between platforms during normal traversal",
+  "anomaly_type": "likely_false_positive",
+  "is_real_bug": false,
+  "severity": 1,
+  "qoe_dimensions_affected": [
+    "immersion"
+  ],
+  "reproduction_steps": [
+    "Move character left and right across floating platforms using directional keys",
+    "Jump between platforms using space/up",
+    "Observe character traveling through the level as camera scrolls"
+  ],
+  "suspected_cause": "Normal gameplay movement and camera scrolling across a platformer level; the 'sudden_jump' flag likely triggered by rapid scene change from jumping/scrolling rather than an actual visual glitch.",
+  "evidence_note": "Frames 31 through 62 show continuous, coherent platformer traversal with consistent art style, character, and physics; no teleportation, corrupted geometry, or discontinuity is visible. Pixel diff median is actually lower than clean play median, suggesting less motion, not a jump artifact.",
+  "confidence": 0.75,
+  "_anomaly": 0,
+  "_frames_sent": [
+    31,
+    39,
+    47,
+    55
+  ],
+  "_model": "anthropic/claude-sonnet-5"
+}
