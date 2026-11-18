@@ -1,0 +1,168 @@
+{
+  "thresholds": {
+    "diff_high": 43.03,
+    "diff_low": 1.52,
+    "freeze_frames": 30
+  },
+  "detection": [
+    {
+      "id": "run_a_softlock",
+      "result": "FAIL",
+      "detail": "caught unresponsive; unexpected sudden_jump (game) frames 31-62",
+      "known_failure": "A camera move at frames 46-47 trips the jump threshold: one false alarm."
+    },
+    {
+      "id": "live_run4_softlock",
+      "result": "PASS",
+      "detail": "caught unresponsive",
+      "known_failure": null
+    },
+    {
+      "id": "run_b_clean",
+      "result": "PASS",
+      "detail": "nothing flagged, correctly",
+      "known_failure": null
+    },
+    {
+      "id": "run_c_popup",
+      "result": "FAIL",
+      "detail": "unexpected sudden_jump (game) frames 19-50",
+      "known_failure": "Frame 34 scored just over the 0.5 CLIP cut-off, so the overlay was flagged as a game sudden_jump."
+    },
+    {
+      "id": "planted_bug_1_phantom_ledge",
+      "result": "OUT OF SCOPE",
+      "detail": "Listed so it is never forgotten. No run can score it until perception understands platforms."
+    }
+  ],
+  "reports": [
+    {
+      "id": "run_a_r000_false_alarm",
+      "result": "PASS",
+      "detail": "verdict right, reason right",
+      "why": null
+    },
+    {
+      "id": "run_a_r001_softlock",
+      "result": "PASS",
+      "detail": "verdict right, reason right",
+      "why": "Its evidence note calls frames 34-157 'pixel-identical', but frame 34 is normal play from before the soft-lock (anomaly starts at 49), and the measured median change in the stretch is 0.91, not zero."
+    },
+    {
+      "id": "live_run4_r000_softlock",
+      "result": "FAIL",
+      "detail": "verdict right, reason WRONG",
+      "why": "Right that it is a bug, wrong cause (a wall; the truth is a timer that pauses the game). It also calls frame 41 part of the frozen stretch, but the anomaly starts at 56."
+    },
+    {
+      "id": "run_c_r000_popup",
+      "result": "FAIL",
+      "detail": "verdict right, reason WRONG",
+      "why": "Correctly 'not a real bug' but for the wrong reason: it blames normal movement and the camera. Frame 34 (P(game) 0.53, the pop-up) was never sent to it."
+    },
+    {
+      "id": "may_0924_r000_ide",
+      "result": "PASS",
+      "detail": "verdict right, reason right",
+      "why": null
+    }
+  ],
+  "verifier": [
+    {
+      "id": "run_a_r000_false_alarm",
+      "result": "PASS",
+      "detail": "expected pass, got pass",
+      "findings": []
+    },
+    {
+      "id": "run_a_r001_softlock",
+      "result": "PASS",
+      "detail": "expected fail, got fail; fired ['no_change_claim']",
+      "findings": [
+        {
+          "check": "no_change_claim",
+          "level": "warn",
+          "detail": "says the frames did not change; measured median change in frames 49-198 is 0.91, not zero"
+        },
+        {
+          "check": "no_change_claim",
+          "level": "fail",
+          "detail": "treats frame(s) [34] as part of the frozen stretch, but the anomaly starts at frame 49; frames 34-48 changed by a median of 30.6"
+        }
+      ]
+    },
+    {
+      "id": "live_run4_r000_softlock",
+      "result": "PASS",
+      "detail": "expected fail, got fail; fired ['no_change_claim']",
+      "findings": [
+        {
+          "check": "no_change_claim",
+          "level": "warn",
+          "detail": "says the frames did not change; measured median change in frames 56-195 is 0.67, not zero"
+        },
+        {
+          "check": "no_change_claim",
+          "level": "fail",
+          "detail": "treats frame(s) [41] as part of the frozen stretch, but the anomaly starts at frame 56; frames 41-55 changed by a median of 25.4"
+        }
+      ]
+    },
+    {
+      "id": "run_c_r000_popup",
+      "result": "PASS",
+      "detail": "expected warn, got warn; fired ['borderline_frame']",
+      "findings": [
+        {
+          "check": "borderline_frame",
+          "level": "warn",
+          "detail": "frame 34 had P(game) 0.53: another window may have been on screen, which the report does not consider (frame 34 was not sent to it)"
+        }
+      ]
+    },
+    {
+      "id": "may_0924_r000_ide",
+      "result": "PASS",
+      "detail": "expected pass, got pass",
+      "findings": []
+    },
+    {
+      "id": "synthetic_everything_wrong",
+      "result": "PASS",
+      "detail": "expected fail, got fail; fired ['frames_cited', 'harness', 'kind', 'numbers', 'schema']",
+      "findings": [
+        {
+          "check": "schema",
+          "level": "fail",
+          "detail": "severity 7 is not 1-5"
+        },
+        {
+          "check": "kind",
+          "level": "fail",
+          "detail": "report says 'sudden_jump', the Inspector measured 'off_game'"
+        },
+        {
+          "check": "harness",
+          "level": "fail",
+          "detail": "CLIP said these frames are not the game, but the report calls it a real game bug"
+        },
+        {
+          "check": "frames_cited",
+          "level": "warn",
+          "detail": "cites frame(s) [12], but was only sent [95, 120, 145, 170]"
+        },
+        {
+          "check": "numbers",
+          "level": "fail",
+          "detail": "quotes 47.2, which matches no measured value for this anomaly"
+        }
+      ]
+    },
+    {
+      "id": "synthetic_clean_copy",
+      "result": "PASS",
+      "detail": "expected pass, got pass",
+      "findings": []
+    }
+  ]
+}

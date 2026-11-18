@@ -1,0 +1,112 @@
+{
+  "about": "Fixed eval set for godot-bug-finder, written 18 Nov 2026. Every case comes from a real recorded run in examples/ except the two marked synthetic. Labels were written from the README's ground truth and by reading each report against signals.csv, before verify_report.py was run on the real reports. Failure cases are kept in on purpose: the point is to see them, not to score 100%.",
+  "detection": [
+    {
+      "id": "run_a_softlock",
+      "folder": "examples/run_a_softlock_28sep",
+      "truth": "Soft-lock fired just before frame 48 (game_events.jsonl).",
+      "expect": [{"kind": "unresponsive", "triage": "game", "covers_frame": 50}],
+      "expect_nothing_else": true,
+      "known_failure": "A camera move at frames 46-47 trips the jump threshold: one false alarm."
+    },
+    {
+      "id": "live_run4_softlock",
+      "folder": "examples/live_run4_softlock_caught",
+      "truth": "Soft-lock fired at frame 55 (27 Sep live run 4).",
+      "expect": [{"kind": "unresponsive", "triage": "game", "covers_frame": 60}],
+      "expect_nothing_else": true
+    },
+    {
+      "id": "run_b_clean",
+      "folder": "examples/run_b_clean_28sep",
+      "truth": "Soft-lock off. No bug.",
+      "expect": [],
+      "expect_nothing_else": true
+    },
+    {
+      "id": "run_c_popup",
+      "folder": "examples/run_c_popup_28sep",
+      "truth": "A pop-up window covered the game at frame 34 (P(game) 0.53). No game bug: it is a harness event.",
+      "expect": [],
+      "expect_nothing_else": true,
+      "known_failure": "Frame 34 scored just over the 0.5 CLIP cut-off, so the overlay was flagged as a game sudden_jump."
+    },
+    {
+      "id": "planted_bug_1_phantom_ledge",
+      "folder": null,
+      "truth": "Collision box offset 32 px. Not visible to pixel differences or a whole-frame CLIP check.",
+      "out_of_scope": "Listed so it is never forgotten. No run can score it until perception understands platforms."
+    }
+  ],
+  "reports": [
+    {
+      "id": "run_a_r000_false_alarm",
+      "report": "examples/run_a_softlock_28sep/report_000.json",
+      "is_real_bug": false,
+      "right_reason_any": ["camera", "normal", "movement", "travers"],
+      "verifier_expect": "pass"
+    },
+    {
+      "id": "run_a_r001_softlock",
+      "report": "examples/run_a_softlock_28sep/report_001.json",
+      "is_real_bug": true,
+      "right_reason_any": ["soft-lock", "softlock", "pause", "frozen game-state", "game loop is not advancing"],
+      "verifier_expect": "fail",
+      "verifier_expect_checks": ["no_change_claim"],
+      "why": "Its evidence note calls frames 34-157 'pixel-identical', but frame 34 is normal play from before the soft-lock (anomaly starts at 49), and the measured median change in the stretch is 0.91, not zero."
+    },
+    {
+      "id": "live_run4_r000_softlock",
+      "report": "examples/live_run4_softlock_caught/report_000.json",
+      "is_real_bug": true,
+      "right_reason_any": ["soft-lock", "softlock", "pause", "timer"],
+      "verifier_expect": "fail",
+      "verifier_expect_checks": ["no_change_claim"],
+      "why": "Right that it is a bug, wrong cause (a wall; the truth is a timer that pauses the game). It also calls frame 41 part of the frozen stretch, but the anomaly starts at 56."
+    },
+    {
+      "id": "run_c_r000_popup",
+      "report": "examples/run_c_popup_28sep/report_000.json",
+      "is_real_bug": false,
+      "right_reason_any": ["window", "overlay", "pop-up", "popup", "harness", "focus"],
+      "verifier_expect": "warn",
+      "verifier_expect_checks": ["borderline_frame"],
+      "why": "Correctly 'not a real bug' but for the wrong reason: it blames normal movement and the camera. Frame 34 (P(game) 0.53, the pop-up) was never sent to it."
+    },
+    {
+      "id": "may_0924_r000_ide",
+      "report": "examples/may_0924_reinspected/report_000.json",
+      "is_real_bug": false,
+      "right_reason_any": ["harness", "IDE", "focus", "not the game"],
+      "verifier_expect": "pass",
+      "note": "No signals.csv in this example, so only the schema, kind, harness and frame checks can run."
+    }
+  ],
+  "synthetic_reports": [
+    {
+      "id": "synthetic_everything_wrong",
+      "about": "Hand-written to make sure each check can fire. Not model output.",
+      "anomalies_from": "examples/may_0924_reinspected",
+      "report": {
+        "title": "Game crashed",
+        "anomaly_type": "sudden_jump",
+        "is_real_bug": true,
+        "severity": 7,
+        "reproduction_steps": ["Press left"],
+        "suspected_cause": "Physics crash. Pixel change of 47.2 at frame 12.",
+        "evidence_note": "See frame 12.",
+        "confidence": 0.9,
+        "_anomaly": 0,
+        "_frames_sent": [95, 120, 145, 170]
+      },
+      "verifier_expect": "fail",
+      "verifier_expect_checks": ["schema", "kind", "harness", "frames_cited", "numbers"]
+    },
+    {
+      "id": "synthetic_clean_copy",
+      "about": "A copy of run A report_000 with nothing changed except the title: the checker should leave it alone.",
+      "copy_of": "examples/run_a_softlock_28sep/report_000.json",
+      "verifier_expect": "pass"
+    }
+  ]
+}

@@ -7,6 +7,11 @@ cause, and whether it is a real bug at all. Severity is the model's zero-shot
 guess; there is no player-experience data behind it.
 
 Backend and model are set in config.py (OpenRouter by default).
+
+Every report is then checked against the run's own numbers by
+verify_report.py (no model involved); the findings go into the report as
+_checks and _check_verdict, and a report that contradicts the data is marked
+"fail" rather than dropped.
 """
 
 import argparse
@@ -17,6 +22,7 @@ import cv2
 
 import config
 from utils import frame_to_base64
+from verify_report import load_signals, load_thresholds_used, verdict, verify
 
 SYSTEM_PROMPT = """You are a QA engineer reviewing detections from an automated game-testing agent.
 For each candidate anomaly you get a few frames in time order and the Inspector's summary.
@@ -126,6 +132,10 @@ def report_session(name):
     out_dir.mkdir(parents=True, exist_ok=True)
     model = config.LLM_MODEL[config.LLM_BACKEND]
 
+    evidence_root = anomalies_path.parent
+    signals = load_signals(evidence_root)
+    calibration = load_thresholds_used(evidence_root)
+
     reports = []
     for s in json.loads(anomalies_path.read_text()):
         frames = sample_frames(Path(s["evidence_dir"]), config.LLM_FRAMES_PER_REPORT)
@@ -135,6 +145,10 @@ def report_session(name):
         print(f"[reporter] anomaly {s['anomaly_index']} ({s['kind']}): asking {model}")
         report = parse_json(ask_model(s, frames))
         report.update(_anomaly=s["anomaly_index"], _frames_sent=[n for n, _ in frames], _model=model)
+        checks = verify(report, s, signals, calibration)
+        report.update(_check_verdict=verdict(checks), _checks=checks)
+        print(f"[reporter]   output check: {report['_check_verdict']}"
+              + "".join(f"\n             {c['level']}: {c['detail']}" for c in checks))
         (out_dir / f"report_{s['anomaly_index']:03d}.json").write_text(json.dumps(report, indent=2))
         reports.append(report)
 

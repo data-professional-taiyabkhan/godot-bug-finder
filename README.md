@@ -13,7 +13,7 @@ Surrey PhD studentship co-supervised with Sony Interactive Entertainment:
 (PGR-2526-075). It is my own work for that application, not affiliated with
 Surrey or Sony.
 
-The git history has three chapters:
+The git history has four chapters:
 
 - **May 2026**: the original skeleton, committed unchanged.
 - **27 September**: a local CLIP model so the agents can tell the game from
@@ -22,6 +22,8 @@ The git history has three chapters:
 - **28 September**: a code clean-up with identical detection behaviour, the
   Reporter running through OpenRouter, a window-focus check in the guard, a
   pop-up test for it, and the replay page in `docs/`.
+- **18 November**: an output check that tests every Reporter claim against
+  the run's own numbers, and a fixed eval set with the failure cases kept in.
 
 It is a small prototype, not a research system, and this README records the
 misses as well as the catches.
@@ -34,6 +36,7 @@ misses as well as the catches.
 | **Guard**     | `explorer.py`, `perception.py` | Before each key press it checks the game window has focus, and every fifth tick it asks CLIP whether the frame is the game. If a check fails it presses nothing, brings the game back and checks again: observe, decide, act, recover. After three failed tries it ends the run. |
 | **Inspector** | `inspector.py` | Runs after the run. Flags **sudden jumps** (frame-to-frame change above a threshold) and **unresponsive** stretches (the 30-frame median change stays below a threshold while at least half the keys pressed are moves). CLIP marks frames that are not the game as a **harness** problem and keeps them out of the pixel signals. Writes an evidence folder per anomaly and `signals.csv` with every frame's numbers. |
 | **Reporter**  | `reporter.py`  | Sends four frames per anomaly (the first from just before it) and the Inspector's summary to a vision LLM, and asks for a JSON report: title, severity 1-5, reproduction steps, suspected cause, `is_real_bug`. OpenRouter by default (Claude Sonnet 5); Anthropic and OpenAI are wired in but untested. |
+| Output check  | `verify_report.py` | Runs after the Reporter, with no model: tests each report against `signals.csv` and the Inspector's summary (cited frames, quoted numbers, "nothing changed" claims, triage, keys). Findings go into the report as `_checks`. |
 | Perception    | `perception.py`| CLIP ViT-B/32 (Hugging Face `transformers`), zero-shot, on the CPU: 82 and 141 ms per frame in two measurements on an i5-11300H laptop. |
 
 `run_demo.py` launches Godot, runs all three, and scores the run against the
@@ -98,6 +101,48 @@ anomaly near the event, which in run A was the false-alarm jump. It now needs
 the expected kind (`unresponsive` for the soft-lock) and lists everything else
 as not explained by a planted bug.
 
+### 18 November: an output check and an eval set
+
+After a reviewer asked how I would know when the Reporter was wrong, I added
+two things. Both run offline on the recorded examples: no new live runs, no
+Godot, no CLIP, no API calls. The Reporter's prompt is unchanged.
+
+**Output check (`verify_report.py`).** The Reporter is a vision LLM, so
+everything it writes is a claim. The check compares each claim it can with the
+per-frame numbers in `signals.csv`. On the five real reports in `examples/`:
+
+| Report | Check | What it found |
+|--------|-------|---------------|
+| Run A soft-lock (`report_001`) | **fail** | Calls frames 34-157 "pixel-identical". Frame 34 is normal play from before the soft-lock (the anomaly starts at 49; frames 34-48 changed by a median of 30.6), and inside the stretch the median change is 0.91, not zero. |
+| Live run 4 (`report_000`) | **fail** | The same error: frame 41 counted as frozen, but the anomaly starts at 56 (frames 41-55 changed by 25.4). Its quoted numbers (0.666, 22.924) do match the data. |
+| Run C pop-up (`report_000`) | **warn** | Blames normal movement, but frame 34 in its window had P(game) 0.53, and that frame was never sent to it. |
+| Run A false alarm, May IDE run | pass | Nothing contradicts the data. |
+
+Both soft-lock reports reached the right verdict with an evidence note that
+was partly wrong. Nothing in September caught that.
+
+**Eval set (`eval/cases.json`, `eval_pipeline.py`).** Fixed, labelled cases
+from the recorded runs, scored in one command:
+
+| Part | Result | The failures |
+|------|--------|--------------|
+| Detection (rules re-run on `signals.csv`) | **2/4** | Run A's camera-move false alarm; run C's pop-up flagged as a game `sudden_jump`. Bug 1, the phantom ledge, is listed as out of scope. |
+| Reporter verdict and reason | **3/5** | Live run 4 and run C: right verdict, wrong reason. The reason check is a crude keyword match. |
+| Output check | **7/7** | Five real reports plus two synthetic ones (one wrong in every way, one clean copy). |
+
+Read the 7/7 with care. I wrote the expected results before running the
+check on the real reports, but its first run raised two false alarms of its
+own: it flagged run C's "22.155 vs 22.924, nearly identical" (a comparison of
+two numbers, not frames), and it rejected 22.924 in live run 4 because that
+run's old `inspection.json` did not record the clean-play median. I fixed the
+check, not the labels. The `borderline_frame` rule was written after run C, so
+it fits one known case. Seven cases built from the same five reports show the
+check works on these, not that it generalises.
+
+Detection logic moved from `inspector.py` to `detect.py` so it can run without
+a screen. Re-run on the four `signals.csv` files, it reproduces every stored
+anomaly exactly.
+
 Across every run so far, the lowest 30-frame median change in normal play was
 4.1; after the soft-lock it sat between 0.59 and 1.00. That gap is what the
 unresponsive rule relies on, and it comes from under ten minutes of play.
@@ -132,7 +177,11 @@ rem Guard test: start both together
 start .venv\Scripts\python guard_test.py 10 8
 .venv\Scripts\python run_demo.py 45 --clean
 
-.venv\Scripts\python reporter.py <session>     &rem reports for an inspected run
+.venv\Scripts\python reporter.py <session>     &rem reports for an inspected run, with the output check
+
+rem Offline, on the examples (no Godot, CLIP or API key needed):
+.venv\Scripts\python verify_report.py --all examples
+.venv\Scripts\python eval_pipeline.py
 ```
 
 Raw sessions (frames and logs) are not in the repo because of their size;
@@ -159,7 +208,10 @@ Raw sessions (frames and logs) are not in the repo because of their size;
    It is a sanity check, not a benchmark.
 6. **The Reporter's causes and repro steps are unverified guesses.** It has
    judged real bug or not correctly in all five reports so far, but twice gave
-   the wrong reason. Severity is its zero-shot guess, with no QoE training data.
+   the wrong reason, and two of its evidence notes misdescribe the frames.
+   `verify_report.py` now catches what can be checked from the numbers
+   (frames, figures, "nothing changed" claims); it cannot check a cause.
+   Severity is the model's zero-shot guess, with no QoE training data.
 7. **No reproduction step.** The Inspector reports single observations; it
    does not replay the inputs to confirm a failure.
 8. **External probing only, Windows only.** No engine instrumentation;
@@ -173,8 +225,12 @@ godot-bug-finder/
 ├── perception.py       # CLIP: "is this the game?"
 ├── utils.py            # screen capture, key presses, window focus, session log
 ├── explorer.py         # Explorer and its guard
+├── detect.py           # the Inspector's detection rules, runnable offline
 ├── inspector.py        # Inspector: pixel signals + CLIP triage, evidence
 ├── reporter.py         # Reporter: vision-LLM bug reports
+├── verify_report.py    # output check: Reporter claims vs measured numbers
+├── eval_pipeline.py    # fixed eval set -> eval_results.json
+├── eval/cases.json     # the labelled cases, failures included
 ├── calibrate.py        # thresholds from a clean run -> thresholds.json
 ├── eval_perception.py  # CLIP accuracy on labelled frames -> eval_perception.json
 ├── run_demo.py         # launch Godot, run everything, score against bug 2
